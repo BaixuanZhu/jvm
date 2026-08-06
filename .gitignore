@@ -1,0 +1,15 @@
+# 构建产物
+*.exe
+*.exe.bak
+*.zip
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+/vendor/
+
+# 临时
+*.tmp

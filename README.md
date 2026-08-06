@@ -1,0 +1,151 @@
+# jvm — Windows 上的 Java 版本管理器
+
+一个类似 nvm-windows 的 **Temurin (Adoptium) JDK** 版本管理工具，专为 Windows 设计。
+单文件 exe，无需安装，无需管理员权限。
+
+## 特性
+
+- 📦 **一键安装**：`jvm install 21` 自动下载最新 GA 版本
+- 🎯 **精确版本**：`jvm install 21.0.12` 安装指定小版本
+- 🔄 **秒级切换**：`jvm use 21` 通过 Windows junction 切换，立即生效
+- ⚡ **当前终端即时生效**：自动注入 shell 函数，`use` 后当前窗口的 `java` 立刻变，无需重开
+- 🔧 **自动配 PATH**：jvm 首次运行自动把自己加入 PATH + 安装 shell 集成，全程零配置
+- 🚫 **免管理员权限**：junction 不需要提权
+- 🔐 **自动校验**：SHA256 校验，下载损坏会报错
+- 🏠 **国内加速**：优先走清华镜像，失败自动回退官方 CDN
+- 🎈 **自动配 JAVA_HOME 和 PATH**：Maven / Gradle / IDE 都能识别
+- 🔍 **模糊匹配**：`jvm use 21` 自动匹配到最新的 `jdk-21.0.x+x`
+- 🔄 **自更新**：`jvm upgrade` 通过 GitHub Release 更新（需配置仓库）
+
+## 安装
+
+**真正零配置**——把 `jvm.exe` 放到任意目录，**第一次运行**（比如 `jvm version`）它会自动：
+
+1. 把自己所在目录加入用户 PATH
+2. 把 shell 集成函数静默写入 PowerShell `$PROFILE` 和 `~/.bashrc`
+
+之后**重开一次终端**，`jvm` 命令随处可用，且 `jvm use` 后当前窗口的 `java` 立刻变化，无需任何手动配置。
+
+> 自动集成是幂等的，重复运行不会堆积；如果你不想用自动集成，可手动删除 profile 里的 `jvm shell init` 标记块。
+
+## 快速开始
+
+```powershell
+# 1. 装一个 JDK
+jvm install 21
+
+# 2. 切换到它
+jvm use 21
+
+# 完成! java -version 现在就是新版本
+```
+
+> 首次运行 jvm 后，**重开一次终端**让 PATH 和 shell 集成生效。之后就一劳永逸了。
+
+## 命令一览
+
+```powershell
+# 版本管理
+jvm install 21              # 安装 JDK 21 的最新 GA 版
+jvm install 21.0.12         # 安装精确版本 (自动解析 build 号)
+jvm install jdk-21.0.12+8   # 用完整 release name 安装
+jvm use 21                  # 切换到 21 (支持模糊匹配)
+jvm uninstall 21            # 卸载
+
+# 查询
+jvm list                    # 已安装版本 (→ 标记当前)
+jvm available               # 可安装的大版本 (标记 LTS)
+jvm current                 # 当前版本
+
+# Shell 集成 (当前终端立即生效)
+jvm init powershell         # 打印 PowerShell 集成脚本
+jvm init powershell --install   # 自动写入 $PROFILE
+jvm init bash --install     # 自动写入 ~/.bashrc
+
+# 其他
+jvm upgrade                 # 检查并更新 jvm 自身 (需配置仓库)
+jvm version                 # 显示 jvm 版本号
+jvm help                    # 帮助
+```
+
+## 关于「当前终端立即生效」
+
+jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFILE`（5.x 和 7+ 都写）和 `~/.bashrc`。重开一次终端后：
+
+- `jvm use 21` 执行后，**当前窗口**的 `java -version` 立刻变成 21
+- 不用重开窗口，不用手动 `init`
+
+原理：集成函数在调用真正的 `jvm.exe` 后，若是 `use` 命令就在当前 shell 会话刷新 `JAVA_HOME` 和 `PATH`。
+
+> - 自动集成是**幂等**的，jvm 每次启动静默检查，缺失才补。
+> - **CMD (cmd.exe)** 暂不支持自动集成（doskey 体验差）。CMD 用户请新开窗口，或手动运行 `jvm init` 查看脚本。
+> - 若你想手动管理集成，仍可用 `jvm init powershell` / `jvm init bash` 打印脚本。
+
+## 工作原理
+
+```
+~/.jvm/
+  versions/
+    jdk-21.0.12+8/      ← 解压后的 JDK
+    jdk-17.0.20+8/
+  current/              ← junction，指向当前选中的版本
+    bin/java.exe ...    ← 通过 junction 访问
+```
+
+- **PATH** 永远指向 `~/.jvm/current/bin`（只配置一次）
+- **JAVA_HOME** 永远指向 `~/.jvm/current`
+- 切换版本 = 重建 `current` 这个 junction 指向
+- 因为 PATH 没变，**任何新终端自动用新版本，无需刷新环境变量**
+
+## 自更新配置（jvm upgrade）
+
+`jvm upgrade` 通过 GitHub Release 更新 jvm 自身。使用前需配置：
+
+1. 在 GitHub 建仓库，发布 release：
+   - tag 用 `v0.2.0` 格式（必须以 `v` 开头）
+   - 上传 asset，命名 `jvm-windows-amd64.exe.zip`（zip 里放单个 `jvm.exe`）
+
+2. 修改 `selfupdate.go` 里的常量为你自己的仓库：
+   ```go
+   const githubRepo = "yourname/jvm"  // ← 改成 owner/repo
+   ```
+
+3. 重新编译，即可用 `jvm upgrade` 检查并更新。
+
+未配置时运行 `jvm upgrade` 会给出提示，不会出错。
+
+## 设计决策
+
+| 问题 | 选择 | 原因 |
+|------|------|------|
+| 切换机制 | Windows junction (reparse point) | 免管理员权限、新终端也生效 |
+| junction 创建 | 原生 `FSCTL_SET_REPARSE_POINT` (syscall) | 不调用 cmd.exe，无注入面 |
+| 当前终端生效 | 启动时自动注入 shell wrapper 函数 | 子进程改不了父 shell 环境，靠函数在会话内刷新 PATH |
+| PATH 注入 | 注册表 `HKCU\Environment` + 广播 WM_SETTINGCHANGE | 不用 setx（会截断长 PATH） |
+| 下载源 | 清华镜像优先 → 官方 CDN 回退 | 国内快，且官方兜底 |
+| 发行版 | 仅 Temurin (Adoptium) | 纯 zip 解压，无需 msi installer |
+
+## 构建
+
+```powershell
+cd D:\code\jvm
+go build -o jvm.exe .
+```
+
+## 项目结构
+
+| 文件 | 职责 |
+|------|------|
+| `main.go` | 命令行入口和路由 |
+| `commands.go` | 各子命令的实现 |
+| `api.go` | Adoptium API 客户端 + CDN/镜像解析 + 精确版本查询 |
+| `install.go` | 下载、SHA256 校验、解压（原子替换） |
+| `junction.go` | junction 创建/删除/解析 (原生 syscall) |
+| `environment.go` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
+| `shell.go` | PowerShell/bash 集成脚本生成 + profile 写入 |
+| `selfupdate.go` | GitHub Release 检查 + 自更新 |
+| `config.go` | 目录路径常量 |
+
+## 许可
+
+MIT
