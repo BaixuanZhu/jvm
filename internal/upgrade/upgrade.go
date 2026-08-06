@@ -83,7 +83,13 @@ func Run() {
 	defer os.Remove(tmpZip)
 
 	fmt.Print("📂 解压中... ")
-	tmpExe, err := extractSingleExe(tmpZip)
+	// 解压到当前 exe 同目录, 避免跨盘符 rename 失败 (os.Rename 走 MoveFileEx, 不能跨卷)
+	selfExe, err := os.Executable()
+	if err != nil {
+		app.Fail("定位当前 exe 失败: " + err.Error())
+	}
+	selfDir := filepath.Dir(selfExe)
+	tmpExe, err := extractSingleExe(tmpZip, selfDir)
 	if err != nil {
 		app.Fail("解压失败: " + err.Error())
 	}
@@ -127,8 +133,10 @@ func fetchLatestGitHubRelease() (*githubRelease, error) {
 	return &rel, nil
 }
 
-// extractSingleExe 从 zip 里解压出单个 jvm.exe 到临时文件, 返回其路径
-func extractSingleExe(zipPath string) (string, error) {
+// extractSingleExe 从 zip 里解压出单个 jvm.exe 到 dir 目录下的临时文件, 返回其路径。
+// 把临时文件落在 dir (通常是当前 exe 同目录) 是为了保证后续 os.Rename 不跨卷 ——
+// Windows 的 MoveFileEx 跨卷时会退化成复制+删除, 对运行中的 exe 会失败。
+func extractSingleExe(zipPath, dir string) (string, error) {
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return "", err
@@ -139,7 +147,7 @@ func extractSingleExe(zipPath string) (string, error) {
 		if filepath.Base(f.Name) != "jvm.exe" {
 			continue
 		}
-		out, err := os.CreateTemp("", "jvm-new-*.exe")
+		out, err := os.CreateTemp(dir, "jvm-new-*.exe")
 		if err != nil {
 			return "", err
 		}
