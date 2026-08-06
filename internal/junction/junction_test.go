@@ -75,6 +75,27 @@ func TestPureMajor(t *testing.T) {
 	}
 }
 
+// stripPrefix 让带不带 jdk- 前缀的版本号能互相匹配 (与 install/available 对齐)
+func TestStripPrefix(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"jdk-21.0.12+8", "21.0.12+8"},
+		{"21.0.12+8", "21.0.12+8"},     // 不带前缀不变
+		{"JDK-21.0.12+8", "21.0.12+8"}, // 大小写
+		{"jdk8u502-b07", "8u502-b07"},
+		{"8u502-b07", "8u502-b07"},
+		{"  jdk-21  ", "21"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := stripPrefix(tt.in)
+		if got != tt.want {
+			t.Errorf("stripPrefix(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestVersionParts(t *testing.T) {
 	tests := []struct {
 		in   string

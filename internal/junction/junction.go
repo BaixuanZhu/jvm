@@ -201,13 +201,17 @@ func ResolveVersion(input string) (string, error) {
 		return latestSemver(cands), nil
 	}
 
-	// 2. 完整目录名精确匹配
+	// 2. 精确匹配版本号: 带不带 jdk- 前缀都接受。
+	//    与 install/available 对齐 —— 它们用不带前缀的简短形式 (如 "25.0.4+7"),
+	//    所以 use/uninstall 也能这么写; 直接粘 list 里的全名 (jdk-25.0.4+7) 也行。
+	//    但少 build 号 (25.0.4) 或大小写不同仍报错, 保持严格。
+	want := stripPrefix(input)
 	for _, n := range names {
-		if n == input {
+		if n == input || stripPrefix(n) == want {
 			return n, nil
 		}
 	}
-	return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本 (需输入完整目录名, 如 jdk-17.0.20+8)", input)
+	return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本 (可用大版本号取最新, 或完整版本号如 25.0.4+7)", input)
 }
 
 // latestSemver 从一组版本目录名里返回语义最新的那个。
@@ -265,6 +269,17 @@ func pureMajor(s string) (int, bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+// stripPrefix 去掉版本串开头的 jdk- / jdk / JDK- / JDK 前缀, 便于精确比较。
+// 让 "25.0.4+7" 和 "jdk-25.0.4+7" 互相匹配。纯函数, 便于测试。
+func stripPrefix(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "jdk-")
+	s = strings.TrimPrefix(s, "jdk")
+	s = strings.TrimPrefix(s, "JDK-")
+	s = strings.TrimPrefix(s, "JDK")
+	return s
 }
 
 // versionParts 把版本目录名解析成数字段切片, 用于语义版本比较。
