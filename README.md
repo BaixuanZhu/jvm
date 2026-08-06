@@ -14,7 +14,7 @@
 - 🔐 **自动校验**：SHA256 校验，下载损坏会报错
 - 🏠 **国内加速**：优先走清华镜像，失败自动回退官方 CDN
 - 🎈 **自动配 JAVA_HOME 和 PATH**：Maven / Gradle / IDE 都能识别
-- 🔍 **模糊匹配**：`jvm use 21` 自动匹配到最新的 `jdk-21.0.x+x`
+- 🔍 **模糊匹配**：`jvm use 21` 自动匹配到最新的 `21.0.x+x`
 - 🔄 **自更新**：`jvm upgrade` 通过 GitHub Release 更新（需配置仓库）
 
 ## 安装
@@ -100,8 +100,8 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 ```
 ~/.jvm/
   versions/
-    jdk-21.0.12+8/      ← 解压后的 JDK
-    jdk-17.0.20+8/
+    21.0.12+8/          ← 解压后的 JDK（以纯 semver 命名）
+    17.0.20+8/
   current/              ← junction，指向当前选中的版本
     bin/java.exe ...    ← 通过 junction 访问
 ```

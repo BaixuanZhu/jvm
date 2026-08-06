@@ -63,11 +63,14 @@ func Install(version string) error {
 		isLatestMajor = true
 	}
 
-	// 检查这个版本是否已装过 (按目录名精确判断)
-	target := filepath.Join(paths.VersionsDir, asset.Directory)
+	// 最终目录名采用 ShortSemver 形式 (X.Y.Z+N), 与 available/list/use/uninstall 完全对齐
+	finalName := adoptium.ShortSemver(asset.Semver)
+
+	// 检查这个版本是否已装过 (按最终目录名精确判断)
+	target := filepath.Join(paths.VersionsDir, finalName)
 	if info, _ := os.Stat(target); info != nil && info.IsDir() {
-		fmt.Printf("⚠️  已安装 %s\n", asset.Directory)
-		fmt.Printf("   如需重装, 请先 jvm uninstall %s\n", asset.Directory)
+		fmt.Printf("⚠️  已安装 %s\n", finalName)
+		fmt.Printf("   如需重装, 请先 jvm uninstall %s\n", finalName)
 		return nil
 	}
 
@@ -123,6 +126,8 @@ func Install(version string) error {
 	fmt.Println("通过")
 
 	// 5. 解压 (先解到临时目录, 成功后原子替换, 避免半解压状态 / 文件占用)
+	//    zip 内顶层目录名 (topFolder) 是 Adoptium 原始命名 (jdk-21.0.12+8 / jdk8u502-b07),
+	//    与我们想要的最终目录名 (finalName) 不一致, 解压后重命名归一化。
 	fmt.Print("📂 解压中... ")
 	tmpExtract := filepath.Join(paths.Root, ".tmp-extract-"+topFolder)
 	os.RemoveAll(tmpExtract)
@@ -130,8 +135,8 @@ func Install(version string) error {
 		os.RemoveAll(tmpExtract)
 		return fmt.Errorf("解压失败: %w", err)
 	}
-	extractedDir := filepath.Join(tmpExtract, topFolder)
-	finalDir := filepath.Join(paths.VersionsDir, topFolder)
+	extractedDir := filepath.Join(tmpExtract, topFolder) // zip 内原始目录名
+	finalDir := filepath.Join(paths.VersionsDir, finalName)
 	if _, err := os.Stat(finalDir); err == nil {
 		os.RemoveAll(finalDir) // 重装场景
 	}
@@ -144,11 +149,11 @@ func Install(version string) error {
 
 	// 6. 清理 zip 并确认目标目录存在
 	os.Remove(zipPath)
-	if _, err := os.Stat(filepath.Join(paths.VersionsDir, topFolder)); err != nil {
-		return fmt.Errorf("解压后未找到 %s: %w", topFolder, err)
+	if _, err := os.Stat(finalDir); err != nil {
+		return fmt.Errorf("解压后未找到 %s: %w", finalName, err)
 	}
 
-	fmt.Printf("\n✅ 安装完成: %s\n", topFolder)
+	fmt.Printf("\n✅ 安装完成: %s\n", finalName)
 	fmt.Printf("   运行 `jvm use %d` 来切换到这个版本\n", asset.Major)
 	return nil
 }

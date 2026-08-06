@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -155,7 +156,7 @@ func ListLocal() (names []string, currentTarget string) {
 		return nil, ""
 	}
 	for _, e := range entries {
-		// 只认能解析出大版本号的目录 (兼容 jdk-21.0.12+8 和 jdk8u502-b07 两种命名)
+		// 只认能解析出大版本号的目录 (目录名采用纯 semver 形式 X.Y.Z+N)
 		if e.IsDir() && majorOf(e.Name()) > 0 {
 			names = append(names, e.Name())
 		}
@@ -225,10 +226,135 @@ func latestSemver(names []string) string {
 	return best
 }
 
+// newDirNameRe 匹配规范化的新目录名: X.Y.Z+N (纯 semver, 无 jdk- 前缀)。
+var newDirNameRe = regexp.MustCompile(`^\d+\.\d+\.\d+\+\d+$`)
+
+// legacyToNewName 把旧版 jvm 遗留的目录名映射到新的纯 semver 形式。
+// 两种历史命名:
+//   - jdk-21.0.12+8     → 21.0.12+8   (去 jdk- 前缀)
+//   - jdk8u502-b07       → 8.0.502+7   (旧式 update/build → semver)
+//
+// 已经是新名 / 无法识别 → 返回 ""。
+// 纯函数, 便于表驱动测试。
+func legacyToNewName(name string) string {
+	s := strings.TrimSpace(name)
+
+	// 新式遗留: 去掉 jdk- 前缀后应符合 X.Y.Z+N
+	if strings.HasPrefix(s, "jdk-") {
+		cand := s[len("jdk-"):]
+		if newDirNameRe.MatchString(cand) {
+			return cand
+		}
+	}
+
+	// 旧式遗留: jdk{N}u{U}-b{B}, 例如 jdk8u502-b07 → 8.0.502+7
+	// 去掉 jdk 前缀, 按 u 和 -b 切三段
+	if strings.HasPrefix(s, "jdk") && strings.Contains(s, "u") && strings.Contains(s, "-b") {
+		rest := s[len("jdk"):] // "8u502-b07"
+		uIdx := strings.IndexByte(rest, 'u')
+		major := rest[:uIdx] // "8"
+		rest = rest[uIdx+1:] // "502-b07"
+		bIdx := strings.Index(rest, "-b")
+		if bIdx < 0 {
+			return ""
+		}
+		update := rest[:bIdx]  // "502"
+		build := rest[bIdx+2:] // "07"
+		m, err1 := strconv.Atoi(major)
+		u, err2 := strconv.Atoi(update)
+		b, err3 := strconv.Atoi(build)
+		if err1 != nil || err2 != nil || err3 != nil || m <= 0 || u <= 0 || b <= 0 {
+			return ""
+		}
+		cand := fmt.Sprintf("%d.0.%d+%d", m, u, b) // 去掉 build 的前导零
+		if newDirNameRe.MatchString(cand) {
+			return cand
+		}
+	}
+
+	return ""
+}
+
+// MigrateLegacyDirs 把旧版 jvm 遗留的版本目录重命名为新的纯 semver 形式。
+// 由 main 在自举阶段调用 (幂等, 无网络, 纯字符串规则)。
+//
+// 行为:
+//   - 符合新规范的目录跳过。
+//   - 旧目录 (jdk-X.Y.Z+B / jdk{N}u{U}-b{B}) 就地 rename 成新名。
+//   - 新名已存在 → 跳过并提示 (用户可能已装新名版本)。
+//   - current 链接若指向被 rename 的旧目录, rename 后重建指向新路径。
+//   - 无法识别的目录 → 打 warning 跳过, 不动用户数据。
+func MigrateLegacyDirs() error {
+	entries, err := os.ReadDir(paths.VersionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // 目录还没建, 无需迁移
+		}
+		return fmt.Errorf("扫描 versions 目录失败: %w", err)
+	}
+
+	currentOldName := ""
+	if t := ReadTarget(); t != "" {
+		currentOldName = filepath.Base(t)
+	}
+
+	var migrated bool
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if newDirNameRe.MatchString(name) {
+			continue // 已是新规范
+		}
+		newName := legacyToNewName(name)
+		if newName == "" {
+			fmt.Fprintf(os.Stderr, "⚠️  跳过无法识别的目录: %s (不是 Temurin 版本目录)\n", name)
+			continue
+		}
+		if newName == name {
+			continue
+		}
+
+		oldPath := filepath.Join(paths.VersionsDir, name)
+		newPath := filepath.Join(paths.VersionsDir, newName)
+
+		// 新名已存在: 不覆盖 (用户可能已装新名版本)
+		if _, err := os.Stat(newPath); err == nil {
+			fmt.Fprintf(os.Stderr, "⚠️  迁移跳过 %s → %s (目标已存在)\n", name, newName)
+			continue
+		}
+
+		// current 链接若指向旧目录, 先解除, rename 后重建
+		relinkCurrent := name == currentOldName
+		if relinkCurrent {
+			if err := Remove(paths.CurrentLink); err != nil {
+				return fmt.Errorf("迁移时解除 current 失败: %w", err)
+			}
+		}
+
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return fmt.Errorf("重命名 %s → %s 失败: %w", name, newName, err)
+		}
+		migrated = true
+		fmt.Fprintf(os.Stderr, "📦 迁移版本目录: %s → %s\n", name, newName)
+
+		if relinkCurrent {
+			if err := Create(paths.CurrentLink, newPath); err != nil {
+				return fmt.Errorf("迁移后重建 current 失败: %w", err)
+			}
+		}
+	}
+
+	if migrated {
+		fmt.Fprintln(os.Stderr, "✅ 旧版本目录已迁移到新命名格式")
+	}
+	return nil
+}
+
 // majorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。
-// 兼容两种 Temurin 命名:
-//   - 新式: "jdk-21.0.12+8"  → 21
-//   - 旧式: "jdk8u502-b07"    → 8
+// 目录名采用纯 semver 形式 ("21.0.12+8" → 21); 同时容错带 jdk- / jdk 前缀
+// 的历史输入 (迁移期的用户手输 / 残留旧目录)。
 //
 // 纯函数, 便于表驱动测试。
 func majorOf(s string) int {
@@ -283,9 +409,8 @@ func stripPrefix(s string) string {
 }
 
 // versionParts 把版本目录名解析成数字段切片, 用于语义版本比较。
-// 兼容两种 Temurin 命名:
-//   - 新式 "jdk-21.0.12+8"  → [21, 0, 12, 8]
-//   - 旧式 "jdk8u502-b07"    → [8, 502, 7]   (major, update, build)
+// 目录名采用纯 semver 形式 "21.0.12+8" → [21, 0, 12, 8];
+// 同时容错带 jdk- / jdk 前缀的历史输入。
 //
 // 纯函数, 便于表驱动测试。
 func versionParts(s string) []int {
@@ -294,12 +419,9 @@ func versionParts(s string) []int {
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")
 	s = strings.TrimPrefix(s, "JDK")
-	s = strings.ToLower(s)
-	// 新式命名: 把 'u' (旧式 update 分隔符) 当成普通分隔符, 与 ./+ 统一拆段
-	s = strings.ReplaceAll(s, "u", ".")
 	var parts []int
 	for _, seg := range strings.FieldsFunc(s, func(r rune) bool {
-		return r < '0' || r > '9' // 用 "非数字" 作分隔符: . + - u 都会拆开
+		return r < '0' || r > '9' // 用 "非数字" 作分隔符: . + - 都会拆开
 	}) {
 		if seg == "" {
 			continue
@@ -315,7 +437,7 @@ func versionParts(s string) []int {
 
 // semverLess 按语义版本比较两个版本目录名: 返回 a 是否严格小于 b。
 // 逐段比较数字段, 短的视为后续段为 0。
-// 例如 "21.0.12+8" 不小于 "21.0.5+11" (12 > 5); "8u502-b07" 大于 "8u402-b06"。
+// 例如 "21.0.12+8" 不小于 "21.0.5+11" (12 > 5); "8.0.502+7" 大于 "8.0.402+6"。
 // 纯函数, 便于表驱动测试。
 func semverLess(a, b string) bool {
 	pa, pb := versionParts(a), versionParts(b)

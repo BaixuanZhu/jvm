@@ -9,6 +9,9 @@ dist/
 .vscode/
 *.swp
 
+# ZCode 客户端临时文件
+.zcode/
+
 # Go
 /vendor/
 

@@ -28,11 +28,10 @@ const (
 
 // AssetInfo 表示一次查询返回的可用 JDK 资源
 type AssetInfo struct {
-	Semver    string // 例如 "21.0.5+11"
-	Major     int    // 大版本号 21
-	ZipURL    string // zip 下载地址
-	SHA256    string // 校验和
-	Directory string // 解压后的顶层目录名 (从 zipURL 推断)
+	Semver string // 例如 "21.0.5+11"
+	Major  int    // 大版本号 21
+	ZipURL string // zip 下载地址
+	SHA256 string // 校验和
 }
 
 // releaseRecord 对应 Adoptium API 单条 release 的 JSON 结构 (只取需要的字段)
@@ -68,13 +67,11 @@ func assetFromRecord(r releaseRecord, hint string) (*AssetInfo, error) {
 	}
 	for _, b := range r.Binaries {
 		if b.Package.Link != "" {
-			directory := strings.TrimSuffix(b.Package.Name, ".zip")
 			return &AssetInfo{
-				Semver:    r.VersionData.Semver,
-				Major:     r.VersionData.Major,
-				ZipURL:    b.Package.Link,
-				SHA256:    b.Package.SHA256,
-				Directory: directory,
+				Semver: r.VersionData.Semver,
+				Major:  r.VersionData.Major,
+				ZipURL: b.Package.Link,
+				SHA256: b.Package.SHA256,
 			}, nil
 		}
 	}
