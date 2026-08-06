@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -154,7 +155,8 @@ func ListLocal() (names []string, currentTarget string) {
 		return nil, ""
 	}
 	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), "jdk-") {
+		// 只认能解析出大版本号的目录 (兼容 jdk-21.0.12+8 和 jdk8u502-b07 两种命名)
+		if e.IsDir() && majorOf(e.Name()) > 0 {
 			names = append(names, e.Name())
 		}
 	}
@@ -167,7 +169,7 @@ func ListLocal() (names []string, currentTarget string) {
 }
 
 // ResolveVersion 模糊匹配用户输入到实际目录名。
-// 例如 "21" -> "jdk-21.0.12+8"; 输入完整目录名也接受; 多个匹配取最新。
+// 例如 "21" -> "jdk-21.0.12+8"、"8" -> "jdk8u502-b07"; 输入完整目录名也接受; 多个匹配取最新。
 func ResolveVersion(input string) (string, error) {
 	names, _ := ListLocal()
 	if len(names) == 0 {
@@ -175,23 +177,32 @@ func ResolveVersion(input string) (string, error) {
 	}
 
 	input = strings.TrimSpace(input)
-	input = strings.TrimPrefix(input, "jdk-")
 	if input == "" {
 		return "", fmt.Errorf("版本号不能为空")
 	}
 
-	// 1. 精确匹配目录名
+	// 1. 精确匹配目录名 (用户可能直接粘贴 jvm list 里的完整名)
 	for _, n := range names {
-		if n == "jdk-"+input || n == input {
+		if n == input {
 			return n, nil
 		}
 	}
-	// 2. 按大版本匹配 (取最新)
+
+	// 2. 规范化后比较 (去掉 jdk-/jdk 前缀, 大小写无关)
+	want := normVersion(input)
+	if want == "" {
+		return "", fmt.Errorf("无效的版本号: %s", input)
+	}
+	for _, n := range names {
+		if normVersion(n) == want {
+			return n, nil
+		}
+	}
+
+	// 3. 按大版本前缀匹配 (取最新, names 已降序)
 	var cands []string
 	for _, n := range names {
-		if strings.TrimPrefix(n, "jdk-") == input ||
-			strings.HasPrefix(strings.TrimPrefix(n, "jdk-"), input+".") ||
-			strings.HasPrefix(strings.TrimPrefix(n, "jdk-"), input+"+") {
+		if matchVersion(n, want) {
 			cands = append(cands, n)
 		}
 	}
@@ -199,4 +210,58 @@ func ResolveVersion(input string) (string, error) {
 		return "", fmt.Errorf("没有找到匹配 '%s' 的版本。运行 jvm list 查看已安装版本", input)
 	}
 	return cands[0], nil // names 已降序, cands 也保持降序
+}
+
+// majorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。
+// 兼容两种 Temurin 命名:
+//   - 新式: "jdk-21.0.12+8"  → 21
+//   - 旧式: "jdk8u502-b07"    → 8
+//
+// 纯函数, 便于表驱动测试。
+func majorOf(s string) int {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "jdk-")
+	s = strings.TrimPrefix(s, "jdk")
+	s = strings.TrimPrefix(s, "JDK-")
+	s = strings.TrimPrefix(s, "JDK")
+	// 取开头连续数字作为大版本号
+	end := strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' })
+	if end < 0 {
+		end = len(s)
+	}
+	if end == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(s[:end])
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+// normVersion 把目录名 / 用户输入归一化为去前缀的小写核心串, 便于精确比较。
+// 例如 "jdk-21.0.12+8" / "21.0.12+8" → "21.0.12+8"
+//
+//	"jdk8u502-b07" / "8u502-b07"       → "8u502-b07"
+//
+// 纯函数, 便于表驱动测试。
+func normVersion(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "jdk-")
+	s = strings.TrimPrefix(s, "jdk")
+	s = strings.TrimPrefix(s, "JDK-")
+	s = strings.TrimPrefix(s, "JDK")
+	return strings.ToLower(s)
+}
+
+// matchVersion 判断已安装目录名 dir 是否属于用户期望的大版本 want (已归一化)。
+// 匹配规则: want 就是纯数字大版本号, 且 dir 的大版本号等于它。
+// 例如 want="8" 匹配 dir="jdk8u502-b07"; want="21" 匹配 dir="jdk-21.0.12+8"。
+// 纯函数, 便于表驱动测试。
+func matchVersion(dir, want string) bool {
+	wantMajor := majorOf(want)
+	if wantMajor == 0 {
+		return false
+	}
+	return majorOf(dir) == wantMajor
 }
