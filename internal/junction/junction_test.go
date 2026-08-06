@@ -2,9 +2,8 @@ package junction
 
 import "testing"
 
-// 这些测试覆盖纯函数 majorOf / normVersion / matchVersion。
-// 重点回归: Temurin 旧式命名 (jdk8u502-b07) 此前因 jdk- 前缀硬编码而识别不了,
-// 导致 jvm list 不显示、jvm use 8 匹配不到。
+// 这些测试覆盖纯函数 majorOf / pureMajor / versionParts / semverLess。
+// ResolveVersion 的规则: 纯大版本号 → 取最新 build; 否则要求完整目录名精确匹配。
 // junction 本身的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
 
 func TestMajorOf(t *testing.T) {
@@ -46,74 +45,32 @@ func TestMajorOf(t *testing.T) {
 	}
 }
 
-func TestNormVersion(t *testing.T) {
+// pureMajor 是 ResolveVersion 判断"是否走大版本取最新"的唯一依据:
+// 只有纯数字 ("8" / "21") 才算, 含点/u/+ 一律不算。
+func TestPureMajor(t *testing.T) {
 	tests := []struct {
-		in, want string
+		in   string
+		want int
+		ok   bool
 	}{
-		// 去 jdk- / jdk 前缀, 转小写
-		{"jdk-21.0.12+8", "21.0.12+8"},
-		{"JDK-21.0.12+8", "21.0.12+8"},
-		{"21.0.12+8", "21.0.12+8"},
-		{"jdk8u502-b07", "8u502-b07"},
-		{"JDK8U502-B07", "8u502-b07"},
-		{"8u502-b07", "8u502-b07"},
-		{"  jdk-21  ", "21"},
-		{"", ""},
+		{"8", 8, true},
+		{"21", 21, true},
+		{"  17  ", 17, true}, // 容许首尾空格
+		// 以下都应判 ok=false (不当作大版本号)
+		{"8u502", 0, false},
+		{"21.0.5", 0, false},
+		{"21.0.5+11", 0, false},
+		{"jdk-21.0.12+8", 0, false},
+		{"jdk8u502-b07", 0, false},
+		{"", 0, false},
+		{"abc", 0, false},
+		{"0", 0, false}, // 非正整数
+		{"-1", 0, false},
 	}
 	for _, tt := range tests {
-		got := normVersion(tt.in)
-		if got != tt.want {
-			t.Errorf("normVersion(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
-
-func TestCoreVersion(t *testing.T) {
-	// 输入假定已 normVersion 归一化 (去前缀、小写)
-	tests := []struct {
-		in, want string
-	}{
-		{"21.0.5+11", "21.0.5"}, // 新式 +build
-		{"21.0.12+8", "21.0.12"},
-		{"21.0.12", "21.0.12"}, // 无 build
-		{"8u502-b07", "8u502"}, // 旧式 -bNN
-		{"8u402-b06", "8u402"},
-		{"8u502", "8u502"}, // 无 build
-		{"21", "21"},       // 纯大版本
-	}
-	for _, tt := range tests {
-		got := coreVersion(tt.in)
-		if got != tt.want {
-			t.Errorf("coreVersion(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
-
-func TestMatchVersion(t *testing.T) {
-	tests := []struct {
-		dir, want string
-		match     bool
-	}{
-		// JDK8 旧式命名 (核心回归点)。
-		// matchVersion 只比大版本号, 所以 "8" / "8u502" 都能匹配 jdk8u502-b07。
-		{"jdk8u502-b07", "8", true},
-		{"jdk8u502-b07", "8u502", true},
-		{"jdk8u502-b07", "8u502-b07", true},
-
-		// JDK 9+ 新式命名
-		{"jdk-21.0.12+8", "21", true},
-		{"jdk-21.0.12+8", "21.0.12+8", true},
-		{"jdk-17.0.13+11", "17", true},
-
-		// 不匹配
-		{"jdk-21.0.12+8", "17", false},
-		{"jdk8u502-b07", "21", false},
-		{"jdk-21.0.12+8", "abc", false}, // want 非法
-	}
-	for _, tt := range tests {
-		got := matchVersion(tt.dir, tt.want)
-		if got != tt.match {
-			t.Errorf("matchVersion(%q, %q) = %v, want %v", tt.dir, tt.want, got, tt.match)
+		got, ok := pureMajor(tt.in)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("pureMajor(%q) = (%d, %v), want (%d, %v)", tt.in, got, ok, tt.want, tt.ok)
 		}
 	}
 }

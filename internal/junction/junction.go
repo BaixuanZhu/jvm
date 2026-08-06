@@ -171,8 +171,11 @@ func ListLocal() (names []string, currentTarget string) {
 	return names, currentTarget
 }
 
-// ResolveVersion 模糊匹配用户输入到实际目录名。
-// 例如 "21" -> "jdk-21.0.12+8"、"8" -> "jdk8u502-b07"; 输入完整目录名也接受; 多个匹配取最新。
+// ResolveVersion 把用户输入解析到实际安装的版本目录名。规则 (刻意保持简单):
+//  1. 纯大版本号 ("8" / "17" / "21"): 取该大版本下语义最新的 build。
+//  2. 其他: 必须是已安装目录的完整名字 (如 "jdk-17.0.20+8"), 一字不差。
+//
+// 即只有"给大版本号"这一种模糊匹配; 想精确指定某个 build 就粘 jvm list 里的全名。
 func ResolveVersion(input string) (string, error) {
 	names, _ := ListLocal()
 	if len(names) == 0 {
@@ -184,53 +187,27 @@ func ResolveVersion(input string) (string, error) {
 		return "", fmt.Errorf("版本号不能为空")
 	}
 
-	// 1. 精确匹配目录名 (用户可能直接粘贴 jvm list 里的完整名)
+	// 1. 纯大版本号 → 该大版本下语义最新
+	if major, ok := pureMajor(input); ok {
+		var cands []string
+		for _, n := range names {
+			if majorOf(n) == major {
+				cands = append(cands, n)
+			}
+		}
+		if len(cands) == 0 {
+			return "", fmt.Errorf("没有安装大版本 %d。运行 jvm list 查看已安装版本", major)
+		}
+		return latestSemver(cands), nil
+	}
+
+	// 2. 完整目录名精确匹配
 	for _, n := range names {
 		if n == input {
 			return n, nil
 		}
 	}
-
-	// 2. 规范化后比较 (去掉 jdk-/jdk 前缀, 大小写无关)
-	want := normVersion(input)
-	if want == "" {
-		return "", fmt.Errorf("无效的版本号: %s", input)
-	}
-	for _, n := range names {
-		if normVersion(n) == want {
-			return n, nil
-		}
-	}
-
-	// 3. 按 "core 版本" (去掉 build 后缀) 匹配。让用户能省略 build 号:
-	//    "21.0.5" 匹配 "21.0.5+11"; "8u502" 匹配 "8u502-b07"。
-	//    多个命中 (装了同 core 的多个 build) 取最新。
-	var coreCands []string
-	wantCore := coreVersion(want)
-	for _, n := range names {
-		if coreVersion(normVersion(n)) == wantCore {
-			coreCands = append(coreCands, n)
-		}
-	}
-	if len(coreCands) == 1 {
-		return coreCands[0], nil
-	}
-	if len(coreCands) > 1 {
-		return latestSemver(coreCands), nil
-	}
-
-	// 4. 按大版本前缀匹配, 多个候选取语义最新的 (而非字符串降序, 后者会把
-	//    21.0.12+8 排在 21.0.5+11 后面)
-	var cands []string
-	for _, n := range names {
-		if matchVersion(n, want) {
-			cands = append(cands, n)
-		}
-	}
-	if len(cands) == 0 {
-		return "", fmt.Errorf("没有找到匹配 '%s' 的版本。运行 jvm list 查看已安装版本", input)
-	}
-	return latestSemver(cands), nil
+	return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本 (需输入完整目录名, 如 jdk-17.0.20+8)", input)
 }
 
 // latestSemver 从一组版本目录名里返回语义最新的那个。
@@ -271,63 +248,23 @@ func majorOf(s string) int {
 	return n
 }
 
-// normVersion 把目录名 / 用户输入归一化为去前缀的小写核心串, 便于精确比较。
-// 例如 "jdk-21.0.12+8" / "21.0.12+8" → "21.0.12+8"
-//
-//	"jdk8u502-b07" / "8u502-b07"       → "8u502-b07"
-//
-// 纯函数, 便于表驱动测试。
-func normVersion(s string) string {
+// pureMajor 判断 s 是否为纯数字大版本号 (如 "8" / "21"), 是则返回它, 否则 ok=false。
+// 这是 ResolveVersion 唯一接受的"模糊"输入形式。纯函数, 便于测试。
+func pureMajor(s string) (int, bool) {
 	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "jdk-")
-	s = strings.TrimPrefix(s, "jdk")
-	s = strings.TrimPrefix(s, "JDK-")
-	s = strings.TrimPrefix(s, "JDK")
-	return strings.ToLower(s)
-}
-
-// coreVersion 去掉 build 后缀, 返回 "core" 部分, 用于省略 build 号的匹配。
-// 已假定输入是 normVersion 归一化过的串 (去前缀、小写)。
-//
-//	"21.0.5+11"  → "21.0.5"   (新式: +build)
-//	"8u502-b07"  → "8u502"    (旧式: 最后一段 -bNN 视为 build 号)
-//	"21"         → "21"       (无后缀)
-//
-// 纯函数, 便于表驱动测试。
-func coreVersion(s string) string {
-	// 新式: '+' 之后是 build
-	if i := strings.IndexByte(s, '+'); i >= 0 {
-		return s[:i]
+	if s == "" {
+		return 0, false
 	}
-	// 旧式: 末尾 '-bNN' 形式的 build 号
-	if i := strings.LastIndexByte(s, '-'); i >= 0 {
-		tail := s[i+1:]
-		if strings.HasPrefix(tail, "b") && len(tail) > 1 {
-			isNum := true
-			for _, r := range tail[1:] {
-				if r < '0' || r > '9' {
-					isNum = false
-					break
-				}
-			}
-			if isNum {
-				return s[:i]
-			}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
 		}
 	}
-	return s
-}
-
-// matchVersion 判断已安装目录名 dir 是否属于用户期望的大版本 want (已归一化)。
-// 匹配规则: want 就是纯数字大版本号, 且 dir 的大版本号等于它。
-// 例如 want="8" 匹配 dir="jdk8u502-b07"; want="21" 匹配 dir="jdk-21.0.12+8"。
-// 纯函数, 便于表驱动测试。
-func matchVersion(dir, want string) bool {
-	wantMajor := majorOf(want)
-	if wantMajor == 0 {
-		return false
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0, false
 	}
-	return majorOf(dir) == wantMajor
+	return n, true
 }
 
 // versionParts 把版本目录名解析成数字段切片, 用于语义版本比较。
