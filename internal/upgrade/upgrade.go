@@ -6,7 +6,7 @@
 //
 // 部署说明 (发 release 时):
 //   - tag 用 v0.2.0 格式
-//   - 上传 asset: jvm-windows-amd64.exe.zip (zip 里放单个 jvm.exe)
+//   - 上传 asset: jvm-windows-amd64.zip (zip 里放单个 jvm.exe)
 package upgrade
 
 import (
@@ -41,9 +41,9 @@ type githubRelease struct {
 }
 
 // expectedAssetName 返回当前平台约定的 release asset 文件名
-// 完整名 = jvm-{GOOS}-{GOARCH}.exe.zip, 例如 jvm-windows-amd64.exe.zip
+// 完整名 = jvm-{GOOS}-{GOARCH}.zip, 例如 jvm-windows-amd64.zip
 func expectedAssetName() string {
-	return fmt.Sprintf("jvm-%s-%s.exe.zip", runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("jvm-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
 }
 
 // Run 检查并更新到最新版 (供 cmd upgrade 调用)。

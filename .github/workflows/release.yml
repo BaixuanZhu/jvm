@@ -1,0 +1,52 @@
+# 打 tag (v0.1.0) 时自动编译, 产出安装器 + 便携 zip, 发 GitHub Release
+# 产物:
+#   jvm-windows-amd64-setup.exe   双击安装器 (给新用户)
+#   jvm-windows-amd64.zip         便携版 (供 jvm upgrade 精确匹配拉取)
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # softprops/action-gh-release 需要创建 release 和上传 asset
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Derive version from tag
+        id: ver
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build jvm.exe
+        run: make build
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Build installer
+        run: make installer VERSION=${{ steps.ver.outputs.VERSION }}
+
+      - name: Build portable zip
+        run: make release
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/jvm-windows-amd64-setup.exe
+            dist/jvm-windows-amd64.zip

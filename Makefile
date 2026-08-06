@@ -48,13 +48,26 @@ fmt:
 vet:
 	$(GO) vet ./...
 
-# ---- 交叉编译示例 (发 release 时用) ----
-# 生成 dist/jvm-windows-amd64.exe.zip
+# ---- NSIS 安装包 (需 makensis 在 PATH; scoop install nsis 或 choco install nsis) ----
+# 产物: dist/jvm-windows-amd64-setup.exe
+.PHONY: installer
+installer: build
+	@echo "[installer] building setup exe (v$(VERSION))..."
+	makensis /DAPP_VERSION=$(VERSION) installer/jvm.nsi
+	@echo "[ok]   $(DIST)/$(BINARY)-windows-amd64-setup.exe"
+
+# ---- 发 release 时用: 生成便携 zip ----
+# 产物 dist/jvm-windows-amd64.zip (内含单个 jvm.exe, 供 jvm upgrade 精确匹配拉取)
 .PHONY: release
 release: build
-	@cd $(DIST) && zip -j $(BINARY)-windows-amd64.exe.zip $(BINARY).exe
-	@echo "[release] $(DIST)/$(BINARY)-windows-amd64.exe.zip"
+	@cd $(DIST) && zip -j $(BINARY)-windows-amd64.zip $(BINARY).exe
+	@echo "[release] $(DIST)/$(BINARY)-windows-amd64.zip"
 	@echo "          上传到 GitHub Release (tag: v$(VERSION)) 后即可用 jvm upgrade 自更新"
+
+# ---- 一键产出全部发行资产 (安装器 + 便携 zip) ----
+.PHONY: dist-all
+dist-all: installer release
+	@echo "[dist-all] both assets ready under $(DIST)/"
 
 # ---- 帮助 ----
 .PHONY: help
@@ -62,8 +75,10 @@ help:
 	@echo "jvm build targets:"
 	@echo "  make build                    build to $(DIST)/$(BINARY).exe"
 	@echo "  make run ARGS=\"version\"        build and run"
+	@echo "  make installer                build NSIS setup -> $(DIST)/$(BINARY)-windows-amd64-setup.exe"
+	@echo "  make release                  build portable zip -> $(DIST)/$(BINARY)-windows-amd64.zip"
+	@echo "  make dist-all                 build both release assets"
 	@echo "  make clean                    remove $(DIST)/"
 	@echo "  make tidy                     go mod tidy"
 	@echo "  make fmt                      format code"
 	@echo "  make vet                      static check"
-	@echo "  make release                  build and zip for GitHub Release"

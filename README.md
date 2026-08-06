@@ -1,7 +1,7 @@
 # jvm — Windows 上的 Java 版本管理器
 
 一个类似 nvm-windows 的 **Temurin (Adoptium) JDK** 版本管理工具，专为 Windows 设计。
-单文件 exe，无需安装，无需管理员权限。
+提供双击安装包，无需管理员权限。
 
 ## 特性
 
@@ -19,7 +19,21 @@
 
 ## 安装
 
-**真正零配置**——把 `jvm.exe` 放到任意目录，**第一次运行**（比如 `jvm version`）它会自动：
+两种方式任选其一：
+
+### 方式一：安装包（推荐）
+
+从 [Releases](https://github.com/BaixuanZhu/jvm/releases) 下载 `jvm-windows-amd64-setup.exe`，双击安装。安装器会：
+
+1. 把 `jvm.exe` 放到 `%LOCALAPPDATA%\Programs\jvm`（用户级，无需管理员）
+2. 运行一次 jvm，自动配置 PATH 和 shell 集成
+3. 注册到「程序和功能」，可随时卸载
+
+装完**重开一次终端**即可使用。
+
+### 方式二：便携版
+
+从 Releases 下载 `jvm-windows-amd64.zip`，解压出 `jvm.exe` 放到任意目录，运行一次（比如 `jvm version`）它会自动：
 
 1. 把自己所在目录加入用户 PATH
 2. 把 shell 集成函数静默写入 PowerShell `$PROFILE` 和 `~/.bashrc`
@@ -101,13 +115,13 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 
 `jvm upgrade` 通过 GitHub Release 更新 jvm 自身。使用前需配置：
 
-1. 在 GitHub 建仓库，发布 release：
-   - tag 用 `v0.2.0` 格式（必须以 `v` 开头）
-   - 上传 asset，命名 `jvm-windows-amd64.exe.zip`（zip 里放单个 `jvm.exe`）
+1. 在 GitHub 建仓库，打 tag（如 `v0.2.0`，必须以 `v` 开头）并推送。CI 会自动编译、打包、发布 Release，产出两个 asset：
+   - `jvm-windows-amd64-setup.exe`（安装器）
+   - `jvm-windows-amd64.zip`（便携版，`jvm upgrade` 拉这个，zip 里放单个 `jvm.exe`）
 
-2. 修改 `selfupdate.go` 里的常量为你自己的仓库：
+2. `internal/upgrade/upgrade.go` 里的常量已设为本仓库：
    ```go
-   const githubRepo = "yourname/jvm"  // ← 改成 owner/repo
+   const githubRepo = "BaixuanZhu/jvm"
    ```
 
 3. 重新编译，即可用 `jvm upgrade` 检查并更新。
@@ -127,24 +141,34 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 
 ## 构建
 
+需要 [Go 1.26+](https://go.dev/dl/) 和 GNU Make（Git Bash / MinGW / WSL 自带）。
+
 ```powershell
 cd D:\code\jvm
-go build -o jvm.exe .
+make build       # 编译 -> dist/jvm.exe
+make installer   # 打安装包 -> dist/jvm-windows-amd64-setup.exe (需 NSIS, scoop install nsis)
+make release     # 打便携 zip -> dist/jvm-windows-amd64.zip (供 jvm upgrade)
+make dist-all    # 同时产出安装器 + 便携 zip
 ```
+
+> 打 tag（`git tag v0.1.0 && git push --tags`）会触发 GitHub Actions 自动编译并发 Release。
 
 ## 项目结构
 
 | 文件 | 职责 |
 |------|------|
 | `main.go` | 命令行入口和路由 |
-| `commands.go` | 各子命令的实现 |
-| `api.go` | Adoptium API 客户端 + CDN/镜像解析 + 精确版本查询 |
-| `install.go` | 下载、SHA256 校验、解压（原子替换） |
-| `junction.go` | junction 创建/删除/解析 (原生 syscall) |
-| `environment.go` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
-| `shell.go` | PowerShell/bash 集成脚本生成 + profile 写入 |
-| `selfupdate.go` | GitHub Release 检查 + 自更新 |
-| `config.go` | 目录路径常量 |
+| `cmd/cmd.go` | 各子命令的实现 |
+| `internal/adoptium/` | Adoptium API 客户端 + CDN/镜像解析 + 精确版本查询 |
+| `internal/jdk/` | 下载、SHA256 校验、解压（原子替换） |
+| `internal/junction/` | junction 创建/删除/解析 (原生 syscall) |
+| `internal/env/` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
+| `internal/shell/` | PowerShell/bash 集成脚本生成 + profile 写入 |
+| `internal/upgrade/` | GitHub Release 检查 + 自更新 |
+| `internal/paths/` | 目录路径配置 |
+| `internal/app/` | 共享层：版本号、错误退出、HTTP client |
+| `installer/jvm.nsi` | NSIS 安装包脚本 |
+| `Makefile` | 构建/打包目标 |
 
 ## 许可
 
