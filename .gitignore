@@ -14,3 +14,6 @@ dist/
 
 # 临时
 *.tmp
+
+# Mimosa 安全扫描产物
+.mimosa/

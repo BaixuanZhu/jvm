@@ -14,8 +14,10 @@ import (
 	"time"
 )
 
-// Version 是 jvm 自身的版本号
-const Version = "0.1.0"
+// Version 是 jvm 自身的版本号。
+// 构建时通过 ldflags 注入 (见 Makefile: -X jvm/internal/app.Version=...);
+// 本地 go run / go build 未注入时使用此默认值。
+var Version = "0.1.0-dev"
 
 // Fail 打印错误信息到 stderr 并以退出码 1 退出。
 // 供各命令处理函数在遇到不可恢复错误时调用。

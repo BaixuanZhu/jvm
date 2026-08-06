@@ -3,10 +3,16 @@
 
 # ---- 变量 ----
 BINARY   := jvm
-VERSION  := 0.1.0
+# 版本号: 优先用 git describe (tag 或 commit); 否则回退默认值。
+# 构建时通过 ldflags 注入 internal/app.Version, 源码里不再手写版本字面量。
+VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+DEFAULT_VERSION := 0.1.0-dev
+ifeq ($(VERSION),)
+VERSION := $(DEFAULT_VERSION)
+endif
 DIST     := dist
 GO       := go
-LDFLAGS  := -s -w
+LDFLAGS  := -s -w -X jvm/internal/app.Version=$(VERSION)
 TARGET   := $(DIST)/$(BINARY).exe
 
 # ---- 默认目标 ----
