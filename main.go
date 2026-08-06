@@ -53,7 +53,11 @@ func main() {
 	case "list", "ls":
 		cmd.List()
 	case "available":
-		cmd.Available()
+		opts, err := cmd.ParseAvailableArgs(os.Args[2:])
+		if err != nil {
+			app.Fail(err.Error())
+		}
+		cmd.Available(opts)
 	case "uninstall", "rm":
 		if len(args) < 1 {
 			app.Fail("用法: jvm uninstall <版本号>")
@@ -87,7 +91,7 @@ func usage() {
   install <版本>     安装 JDK (例如: jvm install 21  或  jvm install 21.0.12)
   use <版本>         切换到指定版本 (支持模糊匹配, 例如: jvm use 21)
   list               列出本地已安装的版本
-  available          列出可安装的大版本 (标记 LTS)
+  available [-a|--major <N>]  列出可安装版本 (-a 全部子版本, --major 指定大版本)
   uninstall <版本>   卸载指定版本
   current            显示当前正在使用的版本
   init <shell>       打印/安装 shell 集成脚本 (通常自动完成, 无需手动)

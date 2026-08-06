@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -103,9 +104,85 @@ type availableRow struct {
 	lts    bool
 }
 
-// Available 处理 jvm available
-// 并发查询每个大版本的最新 GA, 以表格形式列出大版本、最新版本号和 LTS 标记。
-func Available() {
+// AvailableOptions 是 jvm available 的选项 (由 parseAvailableArgs 解析)。
+type AvailableOptions struct {
+	All   bool // -a/--all: 列出每个大版本的全部子版本
+	Major int  // -m/--major: 仅列出该大版本的全部子版本 (0 表示未指定)
+}
+
+// ParseAvailableArgs 解析 jvm available 的命令行参数。
+// 支持:
+//
+//	-a / --all              列出所有大版本的全部子版本
+//	-m <N> / --major <N>    仅列出大版本 N 的全部子版本
+//	--major=<N>             同上 (等号形式)
+//
+// -a 与 --major 互斥。未识别的 flag / 多余位置参数报错。
+// 纯函数, 便于表驱动测试。
+func ParseAvailableArgs(args []string) (AvailableOptions, error) {
+	var opts AvailableOptions
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		switch {
+		case arg == "-a" || arg == "--all":
+			if opts.Major > 0 {
+				return opts, fmt.Errorf("-a 与 --major 不能同时使用")
+			}
+			opts.All = true
+		case arg == "-m" || arg == "--major":
+			if opts.All {
+				return opts, fmt.Errorf("-a 与 --major 不能同时使用")
+			}
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("%s 需要一个大版本号参数", arg)
+			}
+			i++
+			m, err := app.ParseMajorVersion(args[i])
+			if err != nil {
+				return opts, fmt.Errorf("无效的大版本号 %q: %w", args[i], err)
+			}
+			opts.Major = m
+		case strings.HasPrefix(arg, "--major="):
+			if opts.All {
+				return opts, fmt.Errorf("-a 与 --major 不能同时使用")
+			}
+			val := strings.TrimPrefix(arg, "--major=")
+			m, err := app.ParseMajorVersion(val)
+			if err != nil {
+				return opts, fmt.Errorf("无效的大版本号 %q: %w", val, err)
+			}
+			opts.Major = m
+		case strings.HasPrefix(arg, "-"):
+			return opts, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -m <N> / --major <N>)", arg)
+		default:
+			return opts, fmt.Errorf("未识别的参数: %s (available 不接受位置参数, 用 -a 或 --major <N>)", arg)
+		}
+		i++
+	}
+	return opts, nil
+}
+
+// versionGroup 是分组输出里一个大版本的全部子版本 (已 ShortSemver 规整, 降序)。
+type versionGroup struct {
+	major    int
+	lts      bool
+	versions []string
+	failed   bool // 查询失败时为 true, versions 为空
+}
+
+// Available 处理 jvm available [-a | --major <N>]。
+// 无 flag 时以表格列出每个大版本的最新 GA; -a/--major 时按大版本分组列出全部子版本。
+func Available(opts AvailableOptions) {
+	if opts.All || opts.Major > 0 {
+		availableGroups(opts)
+		return
+	}
+	availableTable()
+}
+
+// availableTable 是默认的表格输出 (每个大版本最新 GA)。
+func availableTable() {
 	fmt.Println("🔍 正在查询可安装的大版本 (并发获取最新版本号)...")
 	releases, err := adoptium.FetchAvailableReleases()
 	if err != nil {
@@ -142,6 +219,100 @@ func Available() {
 	printAvailableTable(rows)
 	fmt.Println()
 	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21  或  jvm install 21.0.12")
+	fmt.Println("查看全部子版本: jvm available -a  或  jvm available --major 21")
+}
+
+// availableGroups 按 -a / --major 分组列出全部子版本。
+func availableGroups(opts AvailableOptions) {
+	fmt.Println("🔍 正在查询可安装的子版本 (page_size=50, 可能稍慢)...")
+
+	// 取大版本列表 + LTS 标记 (单次 API; --major 场景也用它拿 LTS 标记)
+	releases, err := adoptium.FetchAvailableReleases()
+	if err != nil {
+		app.Fail("查询可用大版本失败: " + err.Error())
+	}
+
+	ltsOf := map[int]bool{}
+	for _, r := range releases {
+		ltsOf[r.Major] = r.LTS
+	}
+
+	// 确定要查哪些大版本
+	var majors []int
+	if opts.Major > 0 {
+		if _, ok := ltsOf[opts.Major]; !ok {
+			app.Fail(fmt.Sprintf("没有大版本 %d。运行 jvm available 查看可安装的大版本", opts.Major))
+		}
+		majors = []int{opts.Major}
+	} else {
+		for _, r := range releases {
+			majors = append(majors, r.Major)
+		}
+	}
+	// 降序 (新版本在前)
+	sortIntsDesc(majors)
+
+	// 并发取每个大版本的全部子版本
+	groups := make([]versionGroup, len(majors))
+	var wg sync.WaitGroup
+	for i, m := range majors {
+		wg.Add(1)
+		go func(i, m int) {
+			defer wg.Done()
+			g := versionGroup{major: m, lts: ltsOf[m]}
+			if assets, err := adoptium.FetchAllAssets(m); err == nil {
+				g.versions = make([]string, 0, len(assets))
+				for _, a := range assets {
+					g.versions = append(g.versions, adoptium.ShortSemver(a.Semver))
+				}
+			} else {
+				g.failed = true
+			}
+			groups[i] = g
+		}(i, m)
+	}
+	wg.Wait()
+
+	printAvailableGroups(groups)
+	fmt.Println()
+	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21.0.10+7")
+}
+
+// sortIntsDesc 原地把切片降序排序 (仅用于一组 major 号, 避免引入 sort 到调用点)。
+func sortIntsDesc(a []int) {
+	sort.Slice(a, func(i, j int) bool { return a[i] > a[j] })
+}
+
+// printAvailableGroups 按大版本分组打印全部子版本, 每组最新版标记 ← 最新。
+func printAvailableGroups(groups []versionGroup) {
+	fmt.Println("可安装的大版本 (Temurin/Adoptium):")
+	fmt.Println()
+	for _, g := range groups {
+		header := fmt.Sprintf("JDK %d", g.major)
+		if g.lts {
+			header += " (LTS)"
+		}
+		fmt.Println(header + ":")
+		if g.failed {
+			fmt.Println("  (查询失败)")
+			fmt.Println()
+			continue
+		}
+		if len(g.versions) == 0 {
+			fmt.Println("  (无)")
+			fmt.Println()
+			continue
+		}
+		for i, v := range g.versions {
+			if i == 0 {
+				fmt.Printf("  %s  ← 最新\n", v)
+			} else {
+				fmt.Printf("  %s\n", v)
+			}
+		}
+		fmt.Printf("  (共 %d 个)\n", len(g.versions))
+		fmt.Println()
+	}
 }
 
 // printAvailableTable 以对齐的 ASCII 表格形式打印可安装版本。

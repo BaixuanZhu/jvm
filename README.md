@@ -69,6 +69,8 @@ jvm uninstall 21            # 卸载
 # 查询
 jvm list                    # 已安装版本 (→ 标记当前)
 jvm available               # 可安装的大版本 (标记 LTS)
+jvm available -a            # 列出每个大版本的全部子版本
+jvm available --major 21    # 只看 JDK 21 的全部子版本
 jvm current                 # 当前版本
 
 # Shell 集成 (当前终端立即生效)

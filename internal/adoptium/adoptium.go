@@ -99,6 +99,40 @@ func FetchLatestAsset(major int) (*AssetInfo, error) {
 	return assetFromRecord(releases[0], fmt.Sprintf("大版本 %d", major))
 }
 
+// FetchAllAssets 查询指定大版本的全部 GA 子版本 (page_size=50 取全量),
+// 返回顺序与 API 一致 (最新在前)。供 jvm available -a / --major 使用。
+func FetchAllAssets(major int) ([]*AssetInfo, error) {
+	u := fmt.Sprintf(
+		"%s/assets/feature_releases/%d/ga?architecture=x64&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse&page_size=50",
+		apiBase, major,
+	)
+	body, err := httpGetJSON(u)
+	if err != nil {
+		return nil, fmt.Errorf("查询版本失败: %w", err)
+	}
+
+	var releases releaseResponse
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, fmt.Errorf("解析 API 响应失败: %w", err)
+	}
+	if len(releases) == 0 {
+		return nil, fmt.Errorf("没有找到大版本 %d 的 GA 版本", major)
+	}
+
+	assets := make([]*AssetInfo, 0, len(releases))
+	for _, r := range releases {
+		a, err := assetFromRecord(r, fmt.Sprintf("大版本 %d", major))
+		if err != nil {
+			continue // 单条记录缺 Windows/x64 zip 就跳过, 不影响其余
+		}
+		assets = append(assets, a)
+	}
+	if len(assets) == 0 {
+		return nil, fmt.Errorf("大版本 %d 没有可下载的 zip 包", major)
+	}
+	return assets, nil
+}
+
 // FetchAvailableReleases 列出所有可安装的大版本。
 func FetchAvailableReleases() ([]AvailableRelease, error) {
 	u := apiBase + "/info/available_releases"
