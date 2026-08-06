@@ -58,9 +58,10 @@ installer: build
 
 # ---- 发 release 时用: 生成便携 zip ----
 # 产物 dist/jvm-windows-amd64.zip (内含单个 jvm.exe, 供 jvm upgrade 精确匹配拉取)
+# 用 PowerShell Compress-Archive, 不依赖 zip 命令 (Windows / CI 都自带 PowerShell)
 .PHONY: release
 release: build
-	@cd $(DIST) && zip -j $(BINARY)-windows-amd64.zip $(BINARY).exe
+	@powershell -NoProfile -Command "Compress-Archive -Path $(DIST)\$(BINARY).exe -DestinationPath $(DIST)\$(BINARY)-windows-amd64.zip -Force"
 	@echo "[release] $(DIST)/$(BINARY)-windows-amd64.zip"
 	@echo "          上传到 GitHub Release (tag: v$(VERSION)) 后即可用 jvm upgrade 自更新"
 
