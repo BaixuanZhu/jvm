@@ -134,6 +134,26 @@ func FetchAvailableReleases() ([]AvailableRelease, error) {
 	return result, nil
 }
 
+// ShortSemver 把 Adoptium API 返回的 semver (如 "21.0.5+11.0.LTS") 规整为
+// 简短易读的形式 "21.0.5+11"。没有 build 号时只返回 core 部分。
+func ShortSemver(semver string) string {
+	core := semver
+	build := ""
+	if plus := strings.IndexByte(semver, '+'); plus >= 0 {
+		core = semver[:plus]
+		rest := semver[plus+1:] // 例如 "11.0.LTS"
+		if dot := strings.IndexByte(rest, '.'); dot >= 0 {
+			build = rest[:dot]
+		} else {
+			build = rest
+		}
+	}
+	if build != "" {
+		return core + "+" + build
+	}
+	return core
+}
+
 // FetchAssetByReleaseName 用 release_name 端点查指定 release 的资源。
 // releaseName 格式: "jdk-21.0.12+8" (带 jdk- 前缀和 +build 后缀)
 // 注意: 该端点返回单个对象 (不是数组)

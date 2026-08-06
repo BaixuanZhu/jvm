@@ -16,10 +16,10 @@ func TestParseMajorVersion(t *testing.T) {
 		{"11", 11, false},
 		{" 17 ", 17, false}, // 前后空格应被 trim
 		{"1", 1, false},
-		{"0", 0, true},     // 非正整数
-		{"-1", 0, true},    // 负数
-		{"abc", 0, true},   // 非数字
-		{"", 0, true},      // 空
+		{"0", 0, true},       // 非正整数
+		{"-1", 0, true},      // 负数
+		{"abc", 0, true},     // 非数字
+		{"", 0, true},        // 空
 		{"21.0.12", 0, true}, // 非整数 (小数)
 	}
 	for _, tt := range tests {

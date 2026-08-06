@@ -29,8 +29,8 @@ const (
 	genericWrite         = 0x40000000 // GENERIC_WRITE
 	fileShareAll         = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
 	openExisting         = 3
-	reparseTagMountPoint = 0xA0000003  // IO_REPARSE_TAG_MOUNT_POINT
-	fsctlSetReparsePoint = 0x000900A4  // FSCTL_SET_REPARSE_POINT
+	reparseTagMountPoint = 0xA0000003 // IO_REPARSE_TAG_MOUNT_POINT
+	fsctlSetReparsePoint = 0x000900A4 // FSCTL_SET_REPARSE_POINT
 )
 
 // reparseDataBuffer 对应 Windows REPARSE_DATA_BUFFER (MountPoint 变体)
@@ -43,7 +43,7 @@ type reparseDataBuffer struct {
 	SubstituteNameLength uint16
 	PrintNameOffset      uint16
 	PrintNameLength      uint16
-	PathBuffer [maxPath]uint16 // 变长字段, 用固定大小数组, 实际只用到前面一部分
+	PathBuffer           [maxPath]uint16 // 变长字段, 用固定大小数组, 实际只用到前面一部分
 }
 
 const maxPath = 512
@@ -79,7 +79,7 @@ func Create(link, target string) error {
 	printName := absTarget
 	subUTF16 := windows.StringToUTF16(substituteName) // 含结尾 NUL
 	printUTF16 := windows.StringToUTF16(printName)
-	subLen := uint16(len(substituteName) * 2)  // 不含 NUL 的字节长度
+	subLen := uint16(len(substituteName) * 2) // 不含 NUL 的字节长度
 	printLen := uint16(len(printName) * 2)
 
 	// 3. 填充 REPARSE_DATA_BUFFER
