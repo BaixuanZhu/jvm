@@ -18,10 +18,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.26'
 
@@ -35,12 +35,22 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        # choco 装 NSIS 到默认路径, 但不会刷新当前 job 的 PATH,
+        # 所以下一步跑 makensis 会 "command not found"。
+        # 这里把 NSIS 的安装目录显式写进 $GITHUB_PATH, 让后续 step 能找到。
+        run: |
+          choco install nsis -y --no-progress
+          $nsisDir = Get-ChildItem 'C:\Program Files (x86)\NSIS' -ErrorAction SilentlyContinue `
+                     | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $nsisDir) { $nsisDir = 'C:\Program Files (x86)\NSIS' }
+          Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
+          Write-Host "Added to GITHUB_PATH: $nsisDir"
 
       - name: Build installer
         run: make installer VERSION=${{ steps.ver.outputs.VERSION }}
 
       - name: Build portable zip
+        # windows-latest 自带 zip (来自 Git), make release 直接用
         run: make release
 
       - name: Create GitHub Release and upload assets
