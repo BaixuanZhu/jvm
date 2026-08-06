@@ -1,37 +1,36 @@
-package main
-
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
-	"unsafe"
-
-	"golang.org/x/sys/windows"
-)
-
-// 本文件用 Windows reparse point 原生 API 实现 junction (目录联接)。
+// Package junction 用 Windows reparse point 原生 API 实现 junction (目录联接),
+// 并提供本地已安装版本的查询能力。
+//
 // 不调用 cmd.exe / powershell.exe, 完全走 DeviceIoControl, 避免命令注入面。
 //
 // 关键点: 先用 os.Mkdir 建空目录, 再用 CreateFile 打开它 (FILE_FLAG_BACKUP_SEMANTICS
 // 打开目录, FILE_FLAG_OPEN_REPARSE_POINT 让操作针对 reparse point 本身), 然后
 // FSCTL_SET_REPARSE 写入 REPARSE_DATA_BUFFER。
+package junction
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"unsafe"
+
+	"jvm/internal/paths"
+
+	"golang.org/x/sys/windows"
+)
 
 const (
 	// FILE_FLAG_BACKUP_SEMANTICS: 打开目录必须用
 	// FILE_FLAG_OPEN_REPARSE_POINT: 操作 reparse point 本身而非目标
-	flagBackupSemantics   = 0x02000000
-	flagOpenReparsePoint  = 0x00200000
-	// GENERIC_WRITE
-	genericWrite          = 0x40000000
-	fileShareAll          = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
-	openExisting          = 3
-	// IO_REPARSE_TAG_MOUNT_POINT
-	reparseTagMountPoint  = 0xA0000003
-	// FSCTL_SET_REPARSE_POINT
-	fsctlSetReparsePoint  = 0x000900A4
+	flagBackupSemantics  = 0x02000000
+	flagOpenReparsePoint = 0x00200000
+	genericWrite         = 0x40000000 // GENERIC_WRITE
+	fileShareAll         = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
+	openExisting         = 3
+	reparseTagMountPoint = 0xA0000003  // IO_REPARSE_TAG_MOUNT_POINT
+	fsctlSetReparsePoint = 0x000900A4  // FSCTL_SET_REPARSE_POINT
 )
 
 // reparseDataBuffer 对应 Windows REPARSE_DATA_BUFFER (MountPoint 变体)
@@ -44,15 +43,14 @@ type reparseDataBuffer struct {
 	SubstituteNameLength uint16
 	PrintNameOffset      uint16
 	PrintNameLength      uint16
-	// PathBuffer 是变长字段, 我们用固定大小数组, 实际只用到前面一部分
-	PathBuffer [maxPath]uint16
+	PathBuffer [maxPath]uint16 // 变长字段, 用固定大小数组, 实际只用到前面一部分
 }
 
 const maxPath = 512
 
-// createJunction 在 link 处创建指向 target 的 junction
-// link 必须不存在; target 必须存在且是目录
-func createJunction(link, target string) error {
+// Create 在 link 处创建指向 target 的 junction。
+// link 必须不存在; target 必须存在且是目录。
+func Create(link, target string) error {
 	// 校验 target 存在且是目录
 	ti, err := os.Stat(target)
 	if err != nil {
@@ -77,28 +75,20 @@ func createJunction(link, target string) error {
 	// 2. 准备两个名字 (严格对齐 mklink /J 的输出格式):
 	//    SubstituteName = "\??\C:\...\target"  (Win32 对象命名空间前缀)
 	//    PrintName      = "C:\...\target"      (普通路径, 用户可读)
-	//    两者在 PathBuffer 中都带 NUL 终止符。
-	//    各 Length 字段 = 名字 UTF16 字节数 (不含 NUL), 偏移字段 = 相对 PathBuffer 的字节位置。
 	substituteName := `\??\` + absTarget
 	printName := absTarget
-
 	subUTF16 := windows.StringToUTF16(substituteName) // 含结尾 NUL
-	printUTF16 := windows.StringToUTF16(printName)    // 含结尾 NUL
-
-	subLen := uint16(len(substituteName) * 2) // 不含 NUL 的字节长度
+	printUTF16 := windows.StringToUTF16(printName)
+	subLen := uint16(len(substituteName) * 2)  // 不含 NUL 的字节长度
 	printLen := uint16(len(printName) * 2)
 
 	// 3. 填充 REPARSE_DATA_BUFFER
 	var buf reparseDataBuffer
 	buf.ReparseTag = reparseTagMountPoint
-	// SubstituteName 放在 PathBuffer 开头
 	buf.SubstituteNameOffset = 0
 	buf.SubstituteNameLength = subLen
-	// PrintName 紧跟在 SubstituteName + 其 NUL 之后
-	buf.PrintNameOffset = subLen + 2 // +2 跳过 substitute 的 NUL 终止符
+	buf.PrintNameOffset = subLen + 2 // +2 跳过 substitute 的 NUL
 	buf.PrintNameLength = printLen
-
-	// 拷贝: substitute(含NUL) + printName(含NUL)
 	idx := 0
 	for i := 0; i < len(subUTF16) && idx < maxPath; i++ {
 		buf.PathBuffer[idx] = subUTF16[i]
@@ -108,7 +98,6 @@ func createJunction(link, target string) error {
 		buf.PathBuffer[idx] = printUTF16[i]
 		idx++
 	}
-	// ReparseDataLength = 8 (四个 uint16 offset/length 字段) + PathBuffer 已用字节数
 	pathBufferUsed := int(subLen) + 2 + int(printLen) + 2 // sub + NUL + print + NUL
 	buf.ReparseDataLength = uint16(8 + pathBufferUsed)
 
@@ -119,13 +108,8 @@ func createJunction(link, target string) error {
 		return err
 	}
 	handle, err := windows.CreateFile(
-		linkPtr,
-		genericWrite,
-		fileShareAll,
-		nil,
-		openExisting,
-		flagBackupSemantics|flagOpenReparsePoint,
-		0,
+		linkPtr, genericWrite, fileShareAll, nil, openExisting,
+		flagBackupSemantics|flagOpenReparsePoint, 0,
 	)
 	if err != nil {
 		os.Remove(absLink)
@@ -134,17 +118,12 @@ func createJunction(link, target string) error {
 	defer windows.CloseHandle(handle)
 
 	// 5. DeviceIoControl FSCTL_SET_REPARSE_POINT
-	// 输入缓冲区总大小 = 8 (header: tag+len+reserved) + ReparseDataLength
 	totalSize := uint32(8 + buf.ReparseDataLength)
 	var bytesReturned uint32
 	err = windows.DeviceIoControl(
-		handle,
-		fsctlSetReparsePoint,
-		(*byte)(unsafe.Pointer(&buf)),
-		totalSize,
-		nil, 0,
-		&bytesReturned,
-		nil,
+		handle, fsctlSetReparsePoint,
+		(*byte)(unsafe.Pointer(&buf)), totalSize,
+		nil, 0, &bytesReturned, nil,
 	)
 	if err != nil {
 		os.Remove(absLink)
@@ -153,27 +132,24 @@ func createJunction(link, target string) error {
 	return nil
 }
 
-// removeJunction 删除 junction (只删链接本身, 不影响目标目录)
-func removeJunction(link string) error {
+// Remove 删除 junction (只删链接本身, 不影响目标目录)。
+func Remove(link string) error {
 	return os.Remove(link)
 }
 
-// readJunctionTarget 返回 current 当前指向的绝对路径; 没有则返回 ""
-func readJunctionTarget() string {
-	target, err := os.Readlink(currentLink)
+// ReadTarget 返回 current 当前指向的绝对路径; 没有则返回 ""。
+func ReadTarget() string {
+	target, err := os.Readlink(paths.CurrentLink)
 	if err != nil {
 		return ""
 	}
 	return target
 }
 
-// safeVersionDir 校验解压出的顶层目录名是否安全 (只允许字母数字._+-)
-var safeVersionDir = regexp.MustCompile(`^[A-Za-z0-9._+\-]+$`)
-
-// listLocalVersions 扫描 versionsDir, 返回已安装的版本目录名 (降序)
-// 同时返回 current 当前指向的目录名 (没装则 "")
-func listLocalVersions() (names []string, currentTarget string) {
-	entries, err := os.ReadDir(versionsDir)
+// ListLocal 扫描 versionsDir, 返回已安装的版本目录名 (降序)。
+// 同时返回 current 当前指向的目录名 (没选则 "")。
+func ListLocal() (names []string, currentTarget string) {
+	entries, err := os.ReadDir(paths.VersionsDir)
 	if err != nil {
 		return nil, ""
 	}
@@ -184,39 +160,16 @@ func listLocalVersions() (names []string, currentTarget string) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 
-	if t := readJunctionTarget(); t != "" {
+	if t := ReadTarget(); t != "" {
 		currentTarget = filepath.Base(t)
 	}
 	return names, currentTarget
 }
 
-// findInstalledByMajor 查找某个大版本是否已安装 (返回目录名, 没有则 "")
-func findInstalledByMajor(major int) string {
-	names, _ := listLocalVersions()
-	for _, n := range names {
-		if matchMajor(n, major) {
-			return n
-		}
-	}
-	return ""
-}
-
-// matchMajor 判断目录名 (如 jdk-21.0.5+11) 是否属于某大版本
-func matchMajor(dir string, major int) bool {
-	ver := strings.TrimPrefix(dir, "jdk-")
-	parts := strings.FieldsFunc(ver, func(r rune) bool {
-		return r == '.' || r == '+' || r == '-'
-	})
-	if len(parts) == 0 {
-		return false
-	}
-	return parts[0] == fmt.Sprintf("%d", major)
-}
-
-// resolveVersion 模糊匹配用户输入到实际目录名
-// 例如 "21" -> "jdk-21.0.5+11"; 输入完整目录名也接受
-func resolveVersion(input string) (string, error) {
-	names, _ := listLocalVersions()
+// ResolveVersion 模糊匹配用户输入到实际目录名。
+// 例如 "21" -> "jdk-21.0.12+8"; 输入完整目录名也接受; 多个匹配取最新。
+func ResolveVersion(input string) (string, error) {
+	names, _ := ListLocal()
 	if len(names) == 0 {
 		return "", fmt.Errorf("还没有安装任何版本, 请先 jvm install <版本号>")
 	}

@@ -1,4 +1,13 @@
-package main
+// Package upgrade 通过 GitHub Release 检查并更新 jvm 自身。
+//
+// 机制: 调 GitHub API /repos/{owner}/{repo}/releases/latest 拿最新 release,
+// 比对 tag_name 和当前版本, 下载约定的 asset (zip), 解压出 jvm.exe 并替换。
+// Windows 不能覆盖运行中的 exe, 但能重命名: 旧 exe → .bak, 新 exe 移到位, 启动时清理。
+//
+// 部署说明 (发 release 时):
+//   - tag 用 v0.2.0 格式
+//   - 上传 asset: jvm-windows-amd64.exe.zip (zip 里放单个 jvm.exe)
+package upgrade
 
 import (
 	"archive/zip"
@@ -10,65 +19,45 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
+
+	"jvm/internal/app"
+	"jvm/internal/jdk"
 )
 
-// 本文件实现 jvm upgrade: 通过 GitHub Release 检查并更新 jvm 自身。
-//
-// 机制:
-//  1. 调 GitHub API /repos/{owner}/{repo}/releases/latest 拿最新 release
-//  2. 比对 tag_name (如 v0.2.0) 和当前 version 常量
-//  3. 下载约定的 asset (jvm-windows-amd64.exe.zip), 解压出 jvm.exe
-//  4. Windows 上不能覆盖运行中的 exe, 但可以重命名它:
-//     把旧 exe 重命名为 .bak, 把新 exe 移到目标位置, 启动时清理 .bak
-//
-// 部署说明 (发 release 时):
-//   - 在 GitHub 建 release, tag 用 v0.2.0 格式
-//   - 上传 asset, 命名 jvm-windows-amd64.exe.zip, zip 里放单个 jvm.exe
-//   - 修改下面 githubRepo 常量为你的 owner/repo
-
 // githubRepo 是发布 jvm 的 GitHub 仓库 (owner/repo 格式)。
-// 占位值, 建好仓库后改成你自己的, 例如 "zbxComputer/jvm"。
-const githubRepo = "yourname/jvm"
+// 建好仓库后改成你自己的; 未配置 (占位值) 时 Run 会给出提示。
+const githubRepo = "BaixuanZhu/jvm"
 
-// assetNamePrefix 是 release asset 的文件名前缀约定。
-// 完整名 = 前缀 + GOOS-GOARCH + .exe.zip, 例如 jvm-windows-amd64.exe.zip
+// githubRelease 对应 GitHub API releases/latest 的响应 (只取需要的字段)
+type githubRelease struct {
+	TagName string `json:"tag_name"`
+	Name    string `json:"name"`
+	HTMLURL string `json:"html_url"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+		Size               int64  `json:"size"`
+	} `json:"assets"`
+}
+
+// expectedAssetName 返回当前平台约定的 release asset 文件名
+// 完整名 = jvm-{GOOS}-{GOARCH}.exe.zip, 例如 jvm-windows-amd64.exe.zip
 func expectedAssetName() string {
 	return fmt.Sprintf("jvm-%s-%s.exe.zip", runtime.GOOS, runtime.GOARCH)
 }
 
-// githubRelease 对应 GitHub API releases/latest 的响应 (只取需要的字段)
-type githubRelease struct {
-	TagName string `json:"tag_name"` // 如 "v0.2.0"
-	Name    string `json:"name"`     // release 标题
-	HTMLURL string `json:"html_url"` // release 页面链接
-	Assets  []struct {
-		Name          string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-		Size          int64  `json:"size"`
-	} `json:"assets"`
-}
-
-// cmdUpgrade 处理 jvm upgrade: 检查并更新到最新版
-func cmdUpgrade() {
-	if githubRepo == "yourname/jvm" {
-		fmt.Println("⚠️  自更新未配置。")
-		fmt.Println("   请先在 selfupdate.go 里把 githubRepo 改成你的 owner/repo,")
-		fmt.Println("   并在 GitHub 发布 release (tag 用 vX.Y.Z, 上传 jvm-windows-amd64.exe.zip)。")
-		fmt.Println("   当前版本: jvm", version)
-		return
-	}
-
+// Run 检查并更新到最新版 (供 cmd upgrade 调用)。
+func Run() {
 	fmt.Printf("🔍 正在检查 %s 的最新版本...\n", githubRepo)
 	rel, err := fetchLatestGitHubRelease()
 	if err != nil {
-		fail("检查更新失败: " + err.Error())
+		app.Fail("检查更新失败: " + err.Error())
 	}
 
 	latestVersion := strings.TrimPrefix(rel.TagName, "v")
-	fmt.Printf("   最新版本: %s (当前: %s)\n", latestVersion, version)
+	fmt.Printf("   最新版本: %s (当前: %s)\n", latestVersion, app.Version)
 
-	if latestVersion == version {
+	if latestVersion == app.Version {
 		fmt.Println("✅ 已经是最新版本, 无需更新。")
 		return
 	}
@@ -83,28 +72,27 @@ func cmdUpgrade() {
 		}
 	}
 	if assetURL == "" {
-		fail(fmt.Sprintf("最新 release 里没有找到 asset %s。\n   请到 %s 手动下载。", want, rel.HTMLURL))
+		app.Fail(fmt.Sprintf("最新 release 里没有找到 asset %s。\n   请到 %s 手动下载。", want, rel.HTMLURL))
 	}
 
 	fmt.Printf("⬇️  下载 %s ...\n", want)
 	tmpZip := filepath.Join(os.TempDir(), "jvm-upgrade-"+latestVersion+".zip")
-	if err := downloadFile(assetURL, tmpZip); err != nil {
-		fail("下载失败: " + err.Error())
+	if err := jdk.DownloadFile(assetURL, tmpZip); err != nil {
+		app.Fail("下载失败: " + err.Error())
 	}
 	defer os.Remove(tmpZip)
 
 	fmt.Print("📂 解压中... ")
 	tmpExe, err := extractSingleExe(tmpZip)
 	if err != nil {
-		fail("解压失败: " + err.Error())
+		app.Fail("解压失败: " + err.Error())
 	}
 	defer os.Remove(tmpExe)
 	fmt.Println("完成")
 
-	// 替换当前运行的 exe
 	fmt.Print("🔄 替换 jvm.exe ... ")
 	if err := replaceSelf(tmpExe); err != nil {
-		fail("替换失败: " + err.Error())
+		app.Fail("替换失败: " + err.Error())
 	}
 	fmt.Println("完成")
 
@@ -119,10 +107,10 @@ func fetchLatestGitHubRelease() (*githubRelease, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent())
+	req.Header.Set("User-Agent", app.UserAgent())
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := app.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -148,11 +136,9 @@ func extractSingleExe(zipPath string) (string, error) {
 	defer reader.Close()
 
 	for _, f := range reader.File {
-		name := filepath.Base(f.Name)
-		if name != "jvm.exe" {
+		if filepath.Base(f.Name) != "jvm.exe" {
 			continue
 		}
-		// 解压到临时文件
 		out, err := os.CreateTemp("", "jvm-new-*.exe")
 		if err != nil {
 			return "", err
@@ -176,9 +162,9 @@ func extractSingleExe(zipPath string) (string, error) {
 	return "", fmt.Errorf("zip 里没有找到 jvm.exe")
 }
 
-// replaceSelf 用新 exe 替换当前运行的 jvm.exe
-// Windows 标准做法: 重命名旧 exe 为 .bak (运行中的 exe 不能删/覆盖, 但能重命名),
-// 再把新 exe 移到目标位置。启动时清理可能残留的 .bak。
+// replaceSelf 用新 exe 替换当前运行的 jvm.exe。
+// Windows 标准做法: 重命名旧 exe 为 .bak (运行中的 exe 不能覆盖, 但能重命名),
+// 再把新 exe 移到目标位置。
 func replaceSelf(newExePath string) error {
 	currentExe, err := os.Executable()
 	if err != nil {
@@ -187,31 +173,18 @@ func replaceSelf(newExePath string) error {
 	currentExe, _ = filepath.Abs(currentExe)
 
 	bakPath := currentExe + ".bak"
-	// 先清理可能残留的旧 .bak (上次更新中断留下的)
-	os.Remove(bakPath)
+	os.Remove(bakPath) // 清理可能残留的旧 .bak
 
 	// 1. 重命名当前 exe 为 .bak
 	if err := os.Rename(currentExe, bakPath); err != nil {
 		return fmt.Errorf("重命名旧 exe 失败 (文件可能被占用): %w", err)
 	}
-
 	// 2. 把新 exe 移到目标位置
 	if err := os.Rename(newExePath, currentExe); err != nil {
-		// 移动失败, 回滚: 把 .bak 改回去
-		os.Rename(bakPath, currentExe)
+		os.Rename(bakPath, currentExe) // 回滚
 		return fmt.Errorf("移动新 exe 失败: %w", err)
 	}
-
-	// 3. 尝试删除 .bak (Windows 上正在运行的文件可能删不掉, 忽略错误)
+	// 3. 尝试删除 .bak (可能删不掉, 忽略错误)
 	os.Remove(bakPath)
 	return nil
 }
-
-// userAgent 返回统一的 HTTP User-Agent 字符串
-// 各处网络请求都应引用它, 保持版本号一致 (自更新、API 查询、下载)
-func userAgent() string {
-	return fmt.Sprintf("jvm/%s (windows java version manager)", version)
-}
-
-// 占位: 避免 time 包未使用的编译错误 (下载超时用 downloadClient, 此处预留)
-var _ = time.Second

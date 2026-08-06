@@ -1,4 +1,10 @@
-package main
+// Package env 负责持久化环境变量 (JAVA_HOME 和 PATH), 写入注册表
+//
+//	HKCU\Environment
+//
+// 不调用 cmd.exe 或 setx (setx 会截断长 PATH, 是个老坑)。
+// 写完后广播 WM_SETTINGCHANGE, 让新开的进程看到变化。
+package env
 
 import (
 	"fmt"
@@ -7,44 +13,39 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"jvm/internal/paths"
 )
 
-// 本文件负责持久化环境变量 (JAVA_HOME 和 PATH), 写入注册表
-//   HKCU\Environment
-// 不调用 cmd.exe 或 setx (setx 会截断长 PATH, 是个老坑)。
-// 写完后广播 WM_SETTINGCHANGE, 让新开的进程看到变化。
-
 var (
-	modAdvapi32      = syscall.NewLazyDLL("advapi32.dll")
-	modUser32        = syscall.NewLazyDLL("user32.dll")
-	modKernel32Env   = syscall.NewLazyDLL("kernel32.dll")
+	modAdvapi32 = syscall.NewLazyDLL("advapi32.dll")
+	modUser32   = syscall.NewLazyDLL("user32.dll")
+	modKernel32 = syscall.NewLazyDLL("kernel32.dll")
 
-	procRegOpenKeyEx    = modAdvapi32.NewProc("RegOpenKeyExW")
-	procRegQueryValueEx = modAdvapi32.NewProc("RegQueryValueExW")
-	procRegSetValueEx   = modAdvapi32.NewProc("RegSetValueExW")
-	procRegCloseKey     = modAdvapi32.NewProc("RegCloseKey")
-	procSendMessageW    = modUser32.NewProc("SendMessageTimeoutW")
-	procSetEnvironmentVariable = modKernel32Env.NewProc("SetEnvironmentVariableW")
+	procRegOpenKeyEx           = modAdvapi32.NewProc("RegOpenKeyExW")
+	procRegQueryValueEx        = modAdvapi32.NewProc("RegQueryValueExW")
+	procRegSetValueEx          = modAdvapi32.NewProc("RegSetValueExW")
+	procRegCloseKey            = modAdvapi32.NewProc("RegCloseKey")
+	procSendMessageW           = modUser32.NewProc("SendMessageTimeoutW")
+	procSetEnvironmentVariable = modKernel32.NewProc("SetEnvironmentVariableW")
 )
 
 const (
 	HKEY_CURRENT_USER = 0x80000001
 	KEY_READ          = 0x20019
-	KEY_WRITE         = 0x20006
 	KEY_ALL_ACCESS    = 0xF003F
-	REG_SZ            = 1
 	REG_EXPAND_SZ     = 2
 
-	HWND_BROADCAST = 0xFFFF
-	WM_SETTINGCHANGE = 0x001A
-	SMTO_ABORTIFHUNG = 0x0002
+	HWND_BROADCAST    = 0xFFFF
+	WM_SETTINGCHANGE  = 0x001A
+	SMTO_ABORTIFHUNG  = 0x0002
 )
 
-// persistEnv 把一个值写到 HKCU\Environment (REG_EXPAND_SZ, 支持变量展开)
-func persistEnv(name, value string) error {
+// Persist 把一个值写到 HKCU\Environment (REG_EXPAND_SZ, 支持变量展开)。
+// 同时设置当前进程的环境变量, 并广播 WM_SETTINGCHANGE 通知新进程。
+func Persist(name, value string) error {
 	var hKey syscall.Handle
 	envKey, _ := syscall.UTF16PtrFromString("Environment")
-	// 打开 HKCU\Environment, 要写权限
 	r1, _, e := procRegOpenKeyEx.Call(
 		uintptr(HKEY_CURRENT_USER),
 		uintptr(unsafe.Pointer(envKey)),
@@ -61,7 +62,6 @@ func persistEnv(name, value string) error {
 	valueBytes := len(value) * 2
 	nameUTF16, _ := syscall.UTF16PtrFromString(name)
 
-	// 用 REG_EXPAND_SZ, 这样值里可以含 %VAR%
 	r1, _, e = procRegSetValueEx.Call(
 		uintptr(hKey),
 		uintptr(unsafe.Pointer(nameUTF16)),
@@ -74,10 +74,7 @@ func persistEnv(name, value string) error {
 		return fmt.Errorf("写注册表失败: %w", os.NewSyscallError("RegSetValueEx", e))
 	}
 
-	// 同时设置当前进程的环境变量, 这样 jvm 自己后续的子进程也能看到
 	setCurrentProcessEnv(name, value)
-
-	// 广播变化 (通知新进程)
 	broadcastSettingChange()
 	return nil
 }
@@ -140,33 +137,6 @@ func readUserEnv(name string) (string, error) {
 	return syscall.UTF16ToString(buf), nil
 }
 
-// ensureCurrentInPath 确保 ~/.jvm/current/bin 在用户 PATH 的最前面
-// 只在缺失时添加, 不会重复加 (可反复运行)
-func ensureCurrentInPath() error {
-	binPath := filepath.Join(currentLink, "bin")
-
-	userPath, err := readUserEnv("PATH")
-	if err != nil {
-		// 用户 PATH 可能不存在, 新建一个
-		userPath = ""
-	}
-
-	// 把 PATH 拆成条目, 看看 current/bin 是不是已经在里面
-	entries := splitPathEntries(userPath)
-	for _, e := range entries {
-		if strings.EqualFold(filepath.Clean(e), filepath.Clean(binPath)) {
-			return nil // 已经在了
-		}
-	}
-
-	// 加到最前面
-	newPath := binPath
-	if strings.TrimSpace(userPath) != "" {
-		newPath = binPath + ";" + userPath
-	}
-	return persistEnv("PATH", newPath)
-}
-
 // splitPathEntries 拆分 PATH, 忽略空条目
 func splitPathEntries(p string) []string {
 	parts := strings.Split(p, ";")
@@ -179,12 +149,34 @@ func splitPathEntries(p string) []string {
 	return out
 }
 
-// ensureUserPath 确保 jvm.exe 自身所在目录在用户 PATH 里。
+// EnsureCurrentInPath 确保 ~/.jvm/current/bin 在用户 PATH 的最前面。
+// 只在缺失时添加, 不会重复加 (可反复运行)。
+func EnsureCurrentInPath() error {
+	binPath := filepath.Join(paths.CurrentLink, "bin")
+	userPath, err := readUserEnv("PATH")
+	if err != nil {
+		userPath = "" // 用户 PATH 可能不存在, 新建一个
+	}
+
+	entries := splitPathEntries(userPath)
+	for _, e := range entries {
+		if strings.EqualFold(filepath.Clean(e), filepath.Clean(binPath)) {
+			return nil // 已经在了
+		}
+	}
+
+	newPath := binPath
+	if strings.TrimSpace(userPath) != "" {
+		newPath = binPath + ";" + userPath
+	}
+	return Persist("PATH", newPath)
+}
+
+// EnsureUserPath 确保 jvm.exe 自身所在目录在用户 PATH 里。
 // 每次启动静默调用: 用 os.Executable() 拿 exe 目录, 若不在用户 PATH
 // 就追加到末尾并持久化。首次运行自动注入, 之后用户移动 exe 也能自适应。
-// 失败不中断 (只 stderr 提示), 因为这是便利性功能, 不该影响主命令。
-func ensureUserPath() {
-	// os.Executable 返回 exe 的绝对路径 (解析符号链接)
+// 失败静默忽略, 不影响主命令。
+func EnsureUserPath() {
 	exePath, err := os.Executable()
 	if err != nil {
 		return
@@ -195,7 +187,7 @@ func ensureUserPath() {
 	entries := splitPathEntries(userPath)
 	for _, e := range entries {
 		if strings.EqualFold(filepath.Clean(e), filepath.Clean(exeDir)) {
-			return // 已经在 PATH 里, 无需操作
+			return // 已经在 PATH 里
 		}
 	}
 
@@ -206,5 +198,5 @@ func ensureUserPath() {
 	} else {
 		newPath = exeDir
 	}
-	_ = persistEnv("PATH", newPath) // 失败静默忽略, 不影响主命令
+	_ = Persist("PATH", newPath)
 }
