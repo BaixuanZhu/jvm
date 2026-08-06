@@ -1,4 +1,5 @@
 # 构建产物
+dist/
 *.exe
 *.exe.bak
 *.zip
