@@ -35,16 +35,22 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        # choco 装 NSIS 到默认路径, 但不会刷新当前 job 的 PATH,
+        # choco 装 NSIS 到 C:\Program Files (x86)\NSIS, 但不会刷新当前 job 的 PATH,
         # 所以下一步跑 makensis 会 "command not found"。
-        # 这里把 NSIS 的安装目录显式写进 $GITHUB_PATH, 让后续 step 能找到。
+        # NSIS 的 makensis.exe 直接在该目录下 (无版本子目录), 故直接写这个路径。
         run: |
           choco install nsis -y --no-progress
-          $nsisDir = Get-ChildItem 'C:\Program Files (x86)\NSIS' -ErrorAction SilentlyContinue `
-                     | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $nsisDir) { $nsisDir = 'C:\Program Files (x86)\NSIS' }
+          $nsisDir = 'C:\Program Files (x86)\NSIS'
+          if (-not (Test-Path "$nsisDir\makensis.exe")) {
+            throw "makensis.exe not found under $nsisDir"
+          }
           Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
           Write-Host "Added to GITHUB_PATH: $nsisDir"
+
+      - name: Verify makensis
+        # 失败在这里会给出清晰错误, 而不是埋在 make 里
+        shell: pwsh
+        run: makensis /VERSION
 
       - name: Build installer
         run: make installer VERSION=${{ steps.ver.outputs.VERSION }}
