@@ -1,20 +1,21 @@
 # jvm — Windows 上的 Java 版本管理器
 
-一个类似 nvm-windows 的 **Temurin (Adoptium) JDK** 版本管理工具，专为 Windows 设计。
-提供双击安装包，无需管理员权限。
+一个类似 nvm-windows / jabba 的 JDK 版本管理工具，专为 Windows 设计。
+支持 **Temurin / Corretto / Microsoft Build of OpenJDK** 等多个发行版，提供双击安装包，无需管理员权限。
 
 ## 特性
 
 - 📦 **一键安装**：`jvm install 21` 自动下载最新 GA 版本
-- 🎯 **精确版本**：`jvm install 21.0.12` 安装指定小版本
+- 🌐 **多发行版**：`jvm install corretto@21` / `jvm install microsoft@21` 切换发行版（省略前缀默认 temurin）
+- 🎯 **精确版本**：`jvm install 21.0.12+8` 安装指定小版本（完整版本号精确匹配）
 - 🔄 **秒级切换**：`jvm use 21` 通过 Windows junction 切换，立即生效
 - ⚡ **当前终端即时生效**：自动注入 shell 函数，`use` 后当前窗口的 `java` 立刻变，无需重开
 - 🔧 **自动配 PATH**：jvm 首次运行自动把自己加入 PATH + 安装 shell 集成，全程零配置
 - 🚫 **免管理员权限**：junction 不需要提权
 - 🔐 **自动校验**：SHA256 校验，下载损坏会报错
-- 🏠 **国内加速**：优先走清华镜像，失败自动回退官方 CDN
+- 🏠 **国内加速**：Temurin 优先走清华镜像，失败自动回退官方 CDN
 - 🎈 **自动配 JAVA_HOME 和 PATH**：Maven / Gradle / IDE 都能识别
-- 🔍 **模糊匹配**：`jvm use 21` 自动匹配到最新的 `21.0.x+x`
+- 📌 **大版本取最新**：`jvm use 21` 自动切到该大版本的最新 patch
 - 🔄 **自更新**：`jvm upgrade` 通过 GitHub Release 更新（需配置仓库）
 
 ## 安装
@@ -79,19 +80,22 @@ jvm use 21
 
 ```powershell
 # 版本管理
-jvm install 21              # 安装 JDK 21 的最新 GA 版
-jvm install 21.0.12         # 安装精确版本 (自动解析 build 号)
-jvm install jdk-21.0.12+8   # 用完整 release name 安装
-jvm use 21                  # 切换到 21 (支持模糊匹配)
+jvm install 21              # 安装 temurin JDK 21 最新版 (默认发行版)
+jvm install corretto@21     # 安装 corretto JDK 21 最新版
+jvm install microsoft@21    # 安装 microsoft JDK 21 最新版
+jvm install 21.0.12+8       # 安装 temurin 精确版本 (完整版本号, 含 build 号)
+jvm use 21                  # 切换到 21 (大版本号取最新)
+jvm use corretto@21         # 切换到 corretto 21
 jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过)
 
 # 查询
 jvm list                    # 已安装版本 (→ 标记当前)
 jvm available               # 可安装的大版本 (标记 LTS)
+jvm available corretto      # 查看 corretto 可安装版本
 jvm available -a            # 列出每个大版本的全部子版本
 jvm available --major 21    # 只看 JDK 21 的全部子版本
-  jvm current                 # 当前版本 (会实际执行 java -version)
-  jvm doctor                  # 诊断环境配置 (PATH/junction/JAVA_HOME/shell 集成)
+jvm current                 # 当前版本 (会实际执行 java -version)
+jvm doctor                  # 诊断环境配置 (PATH/junction/JAVA_HOME/shell 集成)
 
 # Shell 集成 (当前终端立即生效)
 jvm init powershell         # 打印 PowerShell 集成脚本
@@ -180,8 +184,8 @@ jvm install 21
 | junction 创建 | 原生 `FSCTL_SET_REPARSE_POINT` (syscall) | 不调用 cmd.exe，无注入面 |
 | 当前终端生效 | 启动时自动注入 shell wrapper 函数 | 子进程改不了父 shell 环境，靠函数在会话内刷新 PATH |
 | PATH 注入 | 注册表 `HKCU\Environment` + 广播 WM_SETTINGCHANGE | 不用 setx（会截断长 PATH） |
-| 下载源 | 清华镜像优先 → 官方 CDN 回退 | 国内快，且官方兜底 |
-| 发行版 | 仅 Temurin (Adoptium) | 纯 zip 解压，无需 msi installer |
+| 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退；Corretto/Microsoft 直连官方 CDN | 国内快，且官方兜底 |
+| 发行版 | Temurin / Corretto / Microsoft Build of OpenJDK | 纯 zip 解压，无需 msi installer |
 
 ## 构建
 
@@ -203,7 +207,10 @@ make dist-all    # 同时产出安装器 + 便携 zip
 |------|------|
 | `main.go` | 命令行入口和路由 |
 | `cmd/cmd.go` | 各子命令的实现 |
-| `internal/adoptium/` | Adoptium API 客户端 + CDN/镜像解析 + 精确版本查询 |
+| `internal/provider/` | Provider 抽象层（接口 + 注册表 + Base 基类） |
+| `internal/provider/temurin/` | Temurin (Adoptium) 适配器：API + 清华镜像 |
+| `internal/provider/corretto/` | Amazon Corretto 适配器：indexmap JSON |
+| `internal/provider/microsoft/` | Microsoft Build of OpenJDK 适配器：aka.ms 探测 |
 | `internal/jdk/` | 下载、SHA256 校验、解压（原子替换） |
 | `internal/junction/` | junction 创建/删除/解析 (原生 syscall) |
 | `internal/env/` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
