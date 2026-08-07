@@ -59,10 +59,49 @@ jobs:
         # windows-latest 自带 zip (来自 Git), make release 直接用
         run: make release
 
+      - name: Generate checksum
+        # 生成 GNU coreutils sha256sum 格式的 checksums.txt, 供 jvm upgrade 校验下载完整性
+        shell: bash
+        run: |
+          cd dist
+          sha256sum jvm-windows-amd64.zip > checksums.txt
+          echo "--- checksums.txt ---"
+          cat checksums.txt
+
+      - name: Extract release notes from CHANGELOG.md
+        # 从 CHANGELOG.md 抽取当前 tag 对应版本段落作为 Release body;
+        # 抽不到 (格式不符或无此版本) 则回退让 action 自动生成。
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "当前版本: $VERSION"
+          # awk: 找到 "## [$VERSION]" 开头段落, 输出到下一个 "## [" 之前
+          BODY=$(awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md)
+          if [ -n "$BODY" ]; then
+            {
+              echo "RELEASE_BODY<<EOF"
+              echo "$BODY"
+              echo "EOF"
+            } >> "$GITHUB_ENV"
+            echo "use_changelog=true" >> "$GITHUB_OUTPUT"
+            echo "--- 从 CHANGELOG.md 抽取的 release notes ---"
+            echo "$BODY"
+          else
+            echo "CHANGELOG.md 里未找到 [$VERSION] 段落, 回退自动生成"
+            echo "use_changelog=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ env.RELEASE_BODY }}
+          generate_release_notes: ${{ steps.notes.outputs.use_changelog != 'true' }}
           files: |
             dist/jvm-windows-amd64-setup.exe
             dist/jvm-windows-amd64.zip
+            dist/checksums.txt

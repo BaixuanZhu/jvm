@@ -105,6 +105,16 @@ func toMSYSPath(winPath string) string {
 	return p
 }
 
+// PsProfilePath 返回 Windows PowerShell 5.x 的 profile 路径。
+// 导出以供 doctor 包检测集成状态。
+func PsProfilePath() string { return psProfilePath() }
+
+// Ps7ProfilePath 返回 PowerShell 7+ 的 profile 路径。
+func Ps7ProfilePath() string { return ps7ProfilePath() }
+
+// BashProfilePath 返回 bash profile 路径 (~/.bashrc)。
+func BashProfilePath() string { return bashProfilePath() }
+
 // psProfilePath 返回 Windows PowerShell 5.x 的 profile 路径
 func psProfilePath() string {
 	home, _ := os.UserHomeDir()
@@ -132,6 +142,12 @@ func shellLabel(shell string) string {
 		return "bash"
 	}
 	return shell
+}
+
+// ProfileHasIntegration 检测某个 profile 文件是否已注入 jvm 集成块。
+// 导出以供 doctor 包诊断 shell 集成状态。
+func ProfileHasIntegration(profilePath string) bool {
+	return profileHasIntegration(profilePath)
 }
 
 // profileHasIntegration 检测某个 profile 文件是否已注入 jvm 集成块

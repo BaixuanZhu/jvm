@@ -64,14 +64,15 @@ jvm install 21              # 安装 JDK 21 的最新 GA 版
 jvm install 21.0.12         # 安装精确版本 (自动解析 build 号)
 jvm install jdk-21.0.12+8   # 用完整 release name 安装
 jvm use 21                  # 切换到 21 (支持模糊匹配)
-jvm uninstall 21            # 卸载
+jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过)
 
 # 查询
 jvm list                    # 已安装版本 (→ 标记当前)
 jvm available               # 可安装的大版本 (标记 LTS)
 jvm available -a            # 列出每个大版本的全部子版本
 jvm available --major 21    # 只看 JDK 21 的全部子版本
-jvm current                 # 当前版本
+  jvm current                 # 当前版本 (会实际执行 java -version)
+  jvm doctor                  # 诊断环境配置 (PATH/junction/JAVA_HOME/shell 集成)
 
 # Shell 集成 (当前终端立即生效)
 jvm init powershell         # 打印 PowerShell 集成脚本
@@ -174,4 +175,4 @@ make dist-all    # 同时产出安装器 + 便携 zip
 
 ## 许可
 
-MIT
+[MIT](LICENSE) © 2026 BaixuanZhu

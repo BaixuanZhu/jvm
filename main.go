@@ -15,6 +15,7 @@ import (
 
 	"jvm/cmd"
 	"jvm/internal/app"
+	"jvm/internal/doctor"
 	"jvm/internal/env"
 	"jvm/internal/junction"
 	"jvm/internal/shell"
@@ -59,12 +60,11 @@ func main() {
 		}
 		cmd.Available(opts)
 	case "uninstall", "rm":
-		if len(args) < 1 {
-			app.Fail("用法: jvm uninstall <版本号>")
-		}
-		cmd.Uninstall(args[0])
+		cmd.Uninstall(args)
 	case "current":
 		cmd.Current()
+	case "doctor":
+		doctor.Run()
 	case "init":
 		shell.InitDispatch(args)
 	case "upgrade":
@@ -92,8 +92,9 @@ func usage() {
   use <版本>         切换到指定版本 (支持模糊匹配, 例如: jvm use 21)
   list               列出本地已安装的版本
   available [-a|--major <N>]  列出可安装版本 (-a 全部子版本, --major 指定大版本)
-  uninstall <版本>   卸载指定版本
+  uninstall <版本>   卸载指定版本 (默认需确认, 加 -y 跳过)
   current            显示当前正在使用的版本
+  doctor             诊断环境配置 (目录/junction/PATH/JAVA_HOME/shell 集成)
   init <shell>       打印/安装 shell 集成脚本 (通常自动完成, 无需手动)
   upgrade            检查并更新 jvm 自身 (通过 GitHub Release)
   version            显示 jvm 版本号

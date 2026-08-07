@@ -103,6 +103,12 @@ func broadcastSettingChange() {
 	)
 }
 
+// ReadUserEnv 从 HKCU\Environment 读一个值。
+// 导出以供 doctor 包诊断 JAVA_HOME/PATH 等持久化状态。
+func ReadUserEnv(name string) (string, error) {
+	return readUserEnv(name)
+}
+
 // readUserEnv 从 HKCU\Environment 读一个值
 func readUserEnv(name string) (string, error) {
 	var hKey syscall.Handle

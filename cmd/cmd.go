@@ -5,12 +5,16 @@
 package cmd
 
 import (
+	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"jvm/internal/adoptium"
 	"jvm/internal/app"
@@ -454,14 +458,47 @@ func padCenter(s string, w int) string {
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
 }
 
-// Uninstall 处理 jvm uninstall <版本号>
-func Uninstall(arg string) {
+// Uninstall 处理 jvm uninstall <版本号> [-y|--yes]
+// 默认会在删除前要求确认, 加 -y/--yes 可跳过 (便于脚本调用)。
+func Uninstall(args []string) {
+	if len(args) == 0 {
+		app.Fail("用法: jvm uninstall <版本号> [-y|--yes]")
+	}
+
+	assumeYes := false
+	var versionArg string
+	for _, a := range args {
+		switch a {
+		case "-y", "--yes":
+			assumeYes = true
+		default:
+			if versionArg == "" {
+				versionArg = a
+			}
+		}
+	}
+	if versionArg == "" {
+		app.Fail("用法: jvm uninstall <版本号> [-y|--yes]")
+	}
+
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
 	}
-	dir, err := junction.ResolveVersion(arg)
+	dir, err := junction.ResolveVersion(versionArg)
 	if err != nil {
 		app.Fail(err.Error())
+	}
+
+	// 删除前确认 (除非 -y)
+	if !assumeYes {
+		fmt.Printf("将永久删除 ~/.jvm/versions/%s, 确定? [y/N] ", dir)
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		ans := strings.ToLower(strings.TrimSpace(line))
+		if ans != "y" && ans != "yes" {
+			fmt.Println("已取消。")
+			return
+		}
 	}
 
 	// 如果正在用这个版本, 先解除 current
@@ -480,7 +517,7 @@ func Uninstall(arg string) {
 	fmt.Printf("✅ 已卸载 %s\n", dir)
 }
 
-// Current 处理 jvm current
+// Current 处理 jvm current: 显示当前版本并实际执行 java -version 验证。
 func Current() {
 	t := junction.ReadTarget()
 	if t == "" {
@@ -493,6 +530,19 @@ func Current() {
 		fmt.Println("(current 链接存在, 但 java.exe 未找到)")
 		return
 	}
+
+	// 实际跑一次 java -version (输出走 stderr), 5 秒超时避免卡死
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, javaBin, "-version").CombinedOutput()
+	if err != nil {
+		fmt.Printf("⚠️  执行 java -version 失败: %v\n", err)
+		fmt.Printf("   可在新终端手动运行: \"%s\" -version\n", javaBin)
+		return
+	}
 	fmt.Println("java -version:")
-	fmt.Printf("  在新终端运行: \"%s\" -version\n", javaBin)
+	// 缩进输出, 保持整洁
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\r\n"), "\n") {
+		fmt.Printf("  %s\n", line)
+	}
 }

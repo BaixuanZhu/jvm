@@ -11,6 +11,8 @@ package upgrade
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -81,6 +83,23 @@ func Run() {
 		app.Fail("下载失败: " + err.Error())
 	}
 	defer os.Remove(tmpZip)
+
+	// SHA256 校验: 从 release 的 checksums.txt asset 里取出期望值, 与本地下载文件比对。
+	// 旧版 release 若没有 checksums.txt, 打印警告后继续 (不阻断向后兼容)。
+	if expectedHash, ok := fetchExpectedChecksum(rel, want); ok {
+		fmt.Print("🔐 校验 SHA256... ")
+		got, err := fileSHA256(tmpZip)
+		if err != nil {
+			app.Fail("计算下载文件 SHA256 失败: " + err.Error())
+		}
+		if got != expectedHash {
+			os.Remove(tmpZip)
+			app.Fail(fmt.Sprintf("校验失败\n   期望: %s\n   实际: %s", expectedHash, got))
+		}
+		fmt.Println("通过")
+	} else {
+		fmt.Println("⚠️  该 release 未提供 checksums.txt, 跳过完整性校验。")
+	}
 
 	fmt.Print("📂 解压中... ")
 	// 解压到当前 exe 同目录, 避免跨盘符 rename 失败 (os.Rename 走 MoveFileEx, 不能跨卷)
@@ -195,4 +214,69 @@ func replaceSelf(newExePath string) error {
 	// 3. 尝试删除 .bak (可能删不掉, 忽略错误)
 	os.Remove(bakPath)
 	return nil
+}
+
+// fetchExpectedChecksum 从 release 的 checksums.txt asset 里解析出指定文件的期望 SHA256。
+// checksums.txt 采用 GNU coreutils sha256sum 格式: "<hash>  <filename>"。
+// 找不到 checksums.txt asset 或文件名不匹配时返回 ("", false)。
+func fetchExpectedChecksum(rel *githubRelease, filename string) (string, bool) {
+	var checksumURL string
+	for _, a := range rel.Assets {
+		if a.Name == "checksums.txt" {
+			checksumURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if checksumURL == "" {
+		return "", false
+	}
+
+	tmpChecksum := filepath.Join(os.TempDir(), "jvm-checksums.txt")
+	if err := jdk.DownloadFile(checksumURL, tmpChecksum); err != nil {
+		return "", false
+	}
+	defer os.Remove(tmpChecksum)
+
+	data, err := os.ReadFile(tmpChecksum)
+	if err != nil {
+		return "", false
+	}
+	return parseChecksum(string(data), filename)
+}
+
+// parseChecksum 从 sha256sum 格式文本里找出 filename 对应的 hash。
+// 每行格式: "<hash>  <filename>" (两个空格) 或 "<hash> <filename>"。
+// 纯函数, 便于表驱动测试。
+func parseChecksum(text, filename string) (string, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 拆成 hash 和文件名两部分
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		hash, name := fields[0], fields[1]
+		if name == filename {
+			return hash, true
+		}
+	}
+	return "", false
+}
+
+// fileSHA256 计算文件的 SHA256 (十六进制小写)。
+// 与 internal/jdk 包内的同名私有函数逻辑一致, 此处独立实现避免改 jdk 公共 API。
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
