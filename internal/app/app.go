@@ -7,6 +7,7 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -49,3 +50,35 @@ var HTTPClient = &http.Client{Timeout: 60 * time.Second}
 // DownloadClient 用于下载大文件 (JDK zip), 不设整体超时。
 // 超时控制交给下载过程中的读超时, 避免大文件下载被误杀。
 var DownloadClient = &http.Client{Timeout: 0}
+
+// HTTPGetJSON 发 GET 请求并返回 body (供各 provider 查询轻量 JSON 元数据)。
+// 统一 User-Agent 和 Accept 头, 非 200 报错。
+func HTTPGetJSON(u string) ([]byte, error) {
+	return httpGet(u, "application/json")
+}
+
+// HTTPGetText 发 GET 请求并返回 body (供各 provider 拉取纯文本元数据,
+// 如 Microsoft 的 .sha256sum.txt 校验文件)。
+func HTTPGetText(u string) ([]byte, error) {
+	return httpGet(u, "text/plain")
+}
+
+// httpGet 是 HTTPGetJSON/HTTPGetText 的共享实现。
+func httpGet(u, accept string) ([]byte, error) {
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", UserAgent())
+	req.Header.Set("Accept", accept)
+
+	resp, err := HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API 返回 %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}

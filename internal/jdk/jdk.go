@@ -1,8 +1,8 @@
-// Package jdk 负责 JDK 的下载、校验、解压和安装。
+// Package jdk 负责 JDK 的下载、校验、解压和安装 (发行版无关)。
 //
-// Install 根据 version (大版本号或精确版本) 调 adoptium 包拿资源元数据,
-// 下载 zip (先镜像后官方), SHA256 校验, 解压到 ~/.jvm/versions。
-// DownloadFile 是通用的带进度下载, 被 upgrade 包复用。
+// InstallVersion 按 VersionSpec 调 provider 适配器拿 Asset 元数据 (发行版细节
+// 由适配器消化), 再交给 Install 完成下载 (镜像优先, 无镜像则直连官方)、SHA256
+// 校验、解压到 ~/.jvm/versions。DownloadFile 是通用带进度下载, 被 upgrade 包复用。
 package jdk
 
 import (
@@ -17,54 +17,47 @@ import (
 	"regexp"
 	"strings"
 
-	"jvm/internal/adoptium"
 	"jvm/internal/app"
 	"jvm/internal/paths"
+	"jvm/internal/provider"
 )
 
 // safeVersionDir 校验解压出的顶层目录名是否安全 (只允许字母数字._+-)
 var safeVersionDir = regexp.MustCompile(`^[A-Za-z0-9._+\-]+$`)
 
-// Install 下载并安装指定版本的 JDK。
+// InstallVersion 按 spec 查询版本并安装。便捷封装: 调 provider.Resolve 拿到
+// 已填好的 Asset (CDN/镜像 URL 都在适配器内化), 然后交给 Install。
 //
-// version 支持三种写法:
-//   - "21"            → 该大版本的最新 GA
-//   - "21.0.12"       → 精确小版本, 自动解析 build 号
-//   - "jdk-21.0.12+8" → 完整 release name
-func Install(version string) error {
+// spec.Version 的格式由各 provider 自己解析 (ResolveReleaseName), 这里不预处理。
+// provider 通过 provider.Get(spec.Distro) 由调用方传入。
+func InstallVersion(p provider.Provider, spec app.VersionSpec) error {
+	fmt.Printf("🔍 正在查询 %s %s ...\n", p.DisplayName(), spec.Version)
+	asset, err := p.Resolve(spec)
+	if err != nil {
+		return err
+	}
+	return Install(asset, p.Name())
+}
+
+// Install 下载并安装一个已查好的 Asset (发行版无关)。
+//
+// name 是发行版标识 (用作目录命名前缀和文案), 通常传 asset.Distro;
+// 单独传参是为了让调用方在目录命名上不被 asset.Distro 绑死。
+//
+// 流程: 检查已装 → 下载 (MirrorURL 非空走双源, 否则直连 ZipURL) →
+//
+//	SHA256 校验 → 解压 → 原子替换到 ~/.jvm/versions/{name}-{ReleaseName}。
+func Install(asset *app.Asset, name string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
 	}
 
-	// 根据输入格式选择查询路径
-	var asset *adoptium.AssetInfo
-	isLatestMajor := false // 标记"大版本取最新"场景 (决定 CDN 加速是否可用)
-	v := strings.TrimSpace(version)
-	if strings.ContainsAny(v, ".") || strings.HasPrefix(v, "jdk-") {
-		releaseName, err := adoptium.ResolveReleaseName(v)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("🔍 正在查询 Temurin %s ...\n", releaseName)
-		asset, err = adoptium.FetchAssetByReleaseName(releaseName)
-		if err != nil {
-			return err
-		}
-	} else {
-		major, err := app.ParseMajorVersion(v)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("🔍 正在查询 Temurin JDK %d 的最新版本...\n", major)
-		asset, err = adoptium.FetchLatestAsset(major)
-		if err != nil {
-			return err
-		}
-		isLatestMajor = true
+	// 最终目录名: {distro}-{ReleaseName}。ReleaseName 由 provider 用 ShortSemver 产出,
+	// 与 available/list/use/uninstall 完全对齐。name 默认取 asset.Distro。
+	if name == "" {
+		name = asset.Distro
 	}
-
-	// 最终目录名采用 ShortSemver 形式 (X.Y.Z+N), 与 available/list/use/uninstall 完全对齐
-	finalName := adoptium.ShortSemver(asset.Semver)
+	finalName := name + "-" + asset.ReleaseName
 
 	// 检查这个版本是否已装过 (按最终目录名精确判断)
 	target := filepath.Join(paths.VersionsDir, finalName)
@@ -75,30 +68,29 @@ func Install(version string) error {
 	}
 
 	sizeMB := remoteSizeMB(asset.ZipURL)
-	fmt.Printf("📦 将安装 Temurin %s\n", asset.Semver)
+	fmt.Printf("📦 将安装 %s %s\n", name, asset.Semver)
 	if sizeMB > 0 {
 		fmt.Printf("   大小约 %.1f MB\n", sizeMB)
 	}
 
-	// 1. 解析 CDN 直链 (仅"大版本取最新"场景; 精确版本会下错)
-	fmt.Print("🔗 解析下载地址...\n")
-	cdnURL := asset.ZipURL
-	if isLatestMajor && asset.Major > 0 {
-		if resolved, err := adoptium.ResolveCDNURL(asset.Major); err == nil {
-			cdnURL = resolved
-		}
-	}
-
-	// 2. 下载 (先试国内镜像, 失败回退官方链接)
+	// 1. 下载: Asset.MirrorURL 非空 → 镜像优先, 失败回退官方; 否则直连官方。
+	//    (镜像/CDN 直链的解析已由 provider 适配器内化填入 asset, 这里只消费。)
 	zipName := baseNameOfURL(asset.ZipURL)
 	zipPath := filepath.Join(paths.Root, zipName)
-	mirrorURL := adoptium.MirrorDownloadURL(asset.ZipURL, asset.Major)
-	if err := downloadWithFallback(zipPath, mirrorURL, cdnURL); err != nil {
-		return fmt.Errorf("下载失败: %w", err)
+	fmt.Print("🔗 解析下载地址...\n")
+	if asset.MirrorURL != "" {
+		if err := downloadWithFallback(zipPath, asset.MirrorURL, asset.ZipURL); err != nil {
+			return fmt.Errorf("下载失败: %w", err)
+		}
+	} else {
+		fmt.Print("⬇️  下载 (无国内镜像, 直连官方源)...\n")
+		if err := DownloadFile(asset.ZipURL, zipPath); err != nil {
+			return fmt.Errorf("下载失败: %w", err)
+		}
 	}
 	fmt.Println("✅ 下载完成")
 
-	// 3. 从 zip 里读出顶层目录名 (不依赖预测, 更健壮)
+	// 2. 从 zip 里读出顶层目录名 (不依赖预测, 更健壮)
 	topFolder, err := readTopFolder(zipPath)
 	if err != nil {
 		os.Remove(zipPath)
@@ -113,7 +105,7 @@ func Install(version string) error {
 		return fmt.Errorf("zip 顶层目录名不安全, 已中止: %s", topFolder)
 	}
 
-	// 4. SHA256 校验
+	// 3. SHA256 校验
 	fmt.Print("🔐 校验 SHA256... ")
 	got, err := fileSHA256(zipPath)
 	if err != nil {
@@ -125,9 +117,9 @@ func Install(version string) error {
 	}
 	fmt.Println("通过")
 
-	// 5. 解压 (先解到临时目录, 成功后原子替换, 避免半解压状态 / 文件占用)
-	//    zip 内顶层目录名 (topFolder) 是 Adoptium 原始命名 (jdk-21.0.12+8 / jdk8u502-b07),
-	//    与我们想要的最终目录名 (finalName) 不一致, 解压后重命名归一化。
+	// 4. 解压 (先解到临时目录, 成功后原子替换, 避免半解压状态 / 文件占用)
+	//    zip 内顶层目录名 (topFolder) 是发行版原始命名 (如 jdk-21.0.12+8),
+	//    与我们想要的最终目录名 ({distro}-{ReleaseName}) 不一致, 解压后重命名归一化。
 	fmt.Print("📂 解压中... ")
 	tmpExtract := filepath.Join(paths.Root, ".tmp-extract-"+topFolder)
 	os.RemoveAll(tmpExtract)
@@ -147,7 +139,7 @@ func Install(version string) error {
 	os.RemoveAll(tmpExtract)
 	fmt.Println("完成")
 
-	// 6. 清理 zip 并确认目标目录存在
+	// 5. 清理 zip 并确认目标目录存在
 	os.Remove(zipPath)
 	if _, err := os.Stat(finalDir); err != nil {
 		return fmt.Errorf("解压后未找到 %s: %w", finalName, err)
@@ -178,7 +170,7 @@ func remoteSizeMB(url string) float64 {
 
 // downloadWithFallback 优先用镜像源, 失败则回退到官方源
 func downloadWithFallback(dest, mirrorURL, officialURL string) error {
-	fmt.Print("⬇️  尝试国内镜像 (清华 TUNA)...\n")
+	fmt.Print("⬇️  尝试国内镜像...\n")
 	if err := DownloadFile(mirrorURL, dest); err == nil {
 		return nil
 	}

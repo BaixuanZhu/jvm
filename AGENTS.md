@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows，仅管理 Temurin/Adoptium JDK）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。**仅支持 Windows x64**。
+`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。**仅支持 Windows x64**。
 
 ## Setup commands
 
@@ -29,8 +29,11 @@
 
 命令路由在 `main.go`（纯 switch，无框架），各子命令实现在 `cmd` 包（编排层：解析参数 → 调底层包 → 输出），基础设施按职责拆在 `internal/`：
 
-- `internal/adoptium/` — Adoptium API 客户端：查大版本/最新 GA/精确版本、解析官方 CDN 直链与清华镜像 URL（轻量 JSON 走官方 API，大文件下载走镜像）。
-- `internal/jdk/` — 下载、SHA256 校验、解压、原子替换到 `~/.jvm/versions/`。
+- `internal/provider/` — **Provider 抽象层**：核心接口（`Name`/`DisplayName`/`Available`/`Resolve`/`LatestPatch`/`ListVersions`）+ `Base` 基类（默认实现）+ 注册表（`Register`/`Get`/`All`）。各发行版适配器嵌入 `Base` 按需 override。新公共 provider 逻辑优先放这里或 `internal/app/`，而非塞进某个业务包。
+- `internal/provider/temurin/` — Temurin (Adoptium) 适配器：Adoptium API 查大版本/最新 GA/精确版本，解析官方 CDN 直链与清华镜像 URL（轻量 JSON 走官方 API，大文件下载走镜像）。
+- `internal/provider/corretto/` — Amazon Corretto 适配器：corretto-downloads 仓库的 indexmap JSON（含 SHA256），直连 CloudFront CDN（无镜像）。
+- `internal/provider/microsoft/` — Microsoft Build of OpenJDK 适配器：aka.ms 短链重定向探测 + `.sha256sum.txt` 旁路校验，仅 LTS，直连 VisualStudio CDN（无镜像）。
+- `internal/jdk/` — 下载、SHA256 校验、解压、原子替换到 `~/.jvm/versions/`（发行版无关，只认 `*app.Asset`）。
 - `internal/junction/` — Windows junction 创建/删除/解析，用**原生 syscall**（`FSCTL_SET_REPARSE_POINT`），不调 `cmd.exe`（避免注入面）。
 - `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH。
 - `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）。
@@ -57,11 +60,11 @@
 - junction 创建走原生 syscall，**无 shell 子进程**，杜绝命令注入。
 - 自更新（`jvm upgrade`）从 GitHub Release 拉取，靠精确 asset 名匹配（`expectedAssetName`），替换自身前校验。
 - 注册表只写 `HKCU`（用户级），无需管理员；不写 `HKLM`。
-- 无密钥/凭证处理；网络仅连 Adoptium API、清华镜像、GitHub API/CDN。
+- 无密钥/凭证处理；网络仅连 Adoptium API、corretto-downloads 仓库、aka.ms/VisualStudio CDN、清华镜像、GitHub API/CDN。
 
 ## Known gotchas
 
-- **测试覆盖**：目前仅纯函数表驱动单测（`app` / `jdk` / `shell` / `upgrade` 包），覆盖版本解析、URL 解析、路径转换、profile 块移除等无副作用逻辑；下载/junction/注册表/网络等 Windows 耦合与 I/O 路径暂无测试，改动时注意人工验证。
+- **测试覆盖**：纯函数表驱动单测（`app` / `junction` / `provider` 及各 provider 子包 / `cmd` / `jdk` / `shell` / `upgrade` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除等无副作用逻辑；下载/junction 创建/真实网络请求等 Windows 耦合与 I/O 路径暂无单测，改动时注意人工验证（`go test -cover` 约 10-70%，纯函数路径高，I/O 路径低）。
 - **CMD（cmd.exe）不支持** shell 自动集成（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口。
 - `make installer` 依赖 NSIS；release workflow 用 `choco install nsis` 后需显式把 `C:\Program Files (x86)\NSIS` 写入 `GITHUB_PATH`（choco 不自动刷新 job PATH）。
 - `jvm` 每次启动**静默自举**：把自身目录加入用户 PATH 并补全 shell 集成（幂等）——调试时留意首次运行的副作用。

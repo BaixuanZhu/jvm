@@ -42,7 +42,12 @@ func TestParseAvailableArgs(t *testing.T) {
 		// 未识别 flag / 多余位置参数
 		{"unknown flag", []string{"-x"}, AvailableOptions{}, true},
 		{"unknown long flag", []string{"--foo"}, AvailableOptions{}, true},
-		{"positional arg", []string{"21"}, AvailableOptions{}, true},
+
+		// 位置参数: 第一个当 distro (合法), 第二个多余 (报错)
+		{"distro positional", []string{"corretto"}, AvailableOptions{Distro: "corretto"}, false},
+		{"distro + flag", []string{"corretto", "-a"}, AvailableOptions{Distro: "corretto", All: true}, false},
+		{"flag + distro", []string{"-a", "corretto"}, AvailableOptions{Distro: "corretto", All: true}, false},
+		{"two positionals", []string{"corretto", "temurin"}, AvailableOptions{}, true},
 	}
 
 	for _, tt := range tests {
