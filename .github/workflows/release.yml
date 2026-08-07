@@ -105,3 +105,4 @@ jobs:
             dist/jvm-windows-amd64-setup.exe
             dist/jvm-windows-amd64.zip
             dist/checksums.txt
+            install.ps1

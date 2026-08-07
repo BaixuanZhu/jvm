@@ -19,9 +19,28 @@
 
 ## 安装
 
-两种方式任选其一：
+三种方式任选其一：
 
-### 方式一：安装包（推荐）
+### 方式零：一键安装（推荐）
+
+PowerShell 里执行一行命令即可（无需管理员权限）：
+
+```powershell
+iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" | iex
+```
+
+脚本会自动下载最新 Release、校验 SHA256、解压到 `%LOCALAPPDATA%\Programs\jvm`，并运行一次 jvm 完成自举（注册用户 PATH + 注入 shell 集成）。装完**重开一次终端**即可使用。
+
+想自定义安装目录，把脚本下到本地再传参：
+
+```powershell
+iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -OutFile install.ps1
+.\install.ps1 -InstallDir "D:\tools\jvm"
+```
+
+> 国内访问 GitHub 慢？可设置 `$env:JVM_INSTALLER_MIRROR` 指向镜像下载前缀（末尾带斜杠），或改用下面的安装包 / 便携版方式。
+
+### 方式一：安装包
 
 从 [Releases](https://github.com/BaixuanZhu/jvm/releases) 下载 `jvm-windows-amd64-setup.exe`，双击安装。安装器会：
 
