@@ -19,6 +19,7 @@ import (
 	"jvm/internal/doctor"
 	"jvm/internal/env"
 	"jvm/internal/junction"
+	_ "jvm/internal/provider/corretto" // 注册 Amazon Corretto 适配器 (init 副作用)
 	"jvm/internal/provider/temurin"
 	"jvm/internal/shell"
 	"jvm/internal/upgrade"

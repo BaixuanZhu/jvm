@@ -11,7 +11,6 @@ package temurin
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -82,7 +81,7 @@ func (temurin) DisplayName() string { return "Temurin (Adoptium)" }
 // Available 列出所有可安装的大版本 (Adoptium /info/available_releases)。
 func (temurin) Available() ([]app.Release, error) {
 	u := apiBase + "/info/available_releases"
-	body, err := httpGetJSON(u)
+	body, err := app.HTTPGetJSON(u)
 	if err != nil {
 		return nil, fmt.Errorf("查询可用版本失败: %w", err)
 	}
@@ -206,7 +205,7 @@ func (t temurin) ListVersions(major int) ([]*app.Asset, error) {
 		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse&page_size=%d",
 		apiBase, major, arch, pageLimit,
 	)
-	body, err := httpGetJSON(u)
+	body, err := app.HTTPGetJSON(u)
 	if err != nil {
 		return nil, fmt.Errorf("查询版本失败: %w", err)
 	}
@@ -355,7 +354,7 @@ func fetchLatestAsset(major int) (*app.Asset, error) {
 		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse",
 		apiBase, major, arch,
 	)
-	body, err := httpGetJSON(u)
+	body, err := app.HTTPGetJSON(u)
 	if err != nil {
 		return nil, fmt.Errorf("查询版本失败: %w", err)
 	}
@@ -378,7 +377,7 @@ func fetchAssetByReleaseName(releaseName string) (*app.Asset, error) {
 		"%s/assets/release_name/eclipse/%s?architecture=%s&os=windows&image_type=jdk&heap_size=normal",
 		apiBase, url.PathEscape(releaseName), arch,
 	)
-	body, err := httpGetJSON(u)
+	body, err := app.HTTPGetJSON(u)
 	if err != nil {
 		return nil, fmt.Errorf("查询版本 %s 失败: %w", releaseName, err)
 	}
@@ -388,27 +387,4 @@ func fetchAssetByReleaseName(releaseName string) (*app.Asset, error) {
 		return nil, fmt.Errorf("解析 API 响应失败: %w", err)
 	}
 	return assetFromRecord(r, releaseName)
-}
-
-// httpGetJSON 发 GET 请求并返回 body
-func httpGetJSON(u string) ([]byte, error) {
-	if _, err := url.Parse(u); err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", app.UserAgent())
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := app.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API 返回 %d", resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
 }
