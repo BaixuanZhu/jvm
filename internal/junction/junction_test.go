@@ -1,10 +1,16 @@
 package junction
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
 
-// 这些测试覆盖纯函数 majorOf / pureMajor / versionParts / semverLess。
-// ResolveVersion 的规则: 纯大版本号 → 取最新 build; 否则要求完整目录名精确匹配。
-// junction 本身的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
+	"jvm/internal/paths"
+)
+
+// 这些测试覆盖纯函数 majorOf / pureMajor / versionParts / semverLess / versionCore。
+// ResolveVersion 的规则: 纯大版本号 → 取最新 build; 完整版本号 → 精确匹配;
+// 少 build 号 core → 前缀匹配取最新。junction 的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
 
 func TestMajorOf(t *testing.T) {
 	tests := []struct {
@@ -92,6 +98,27 @@ func TestStripPrefix(t *testing.T) {
 		got := stripPrefix(tt.in)
 		if got != tt.want {
 			t.Errorf("stripPrefix(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestVersionCore(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"21.0.12+8", "21.0.12"},         // 标准: 去 build
+		{"jdk-21.0.12+8", "21.0.12"},     // 带前缀
+		{"21.0.12", "21.0.12"},           // 无 build: 原样
+		{"JDK-17.0.20+8", "17.0.20"},     // 大小写前缀
+		{"8.0.502+7", "8.0.502"},         // JDK8 形式
+		{"  jdk-21.0.12+8  ", "21.0.12"}, // 带空格
+		{"21", "21"},                     // 仅大版本号
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := versionCore(tt.in)
+		if got != tt.want {
+			t.Errorf("versionCore(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }
@@ -190,5 +217,67 @@ func TestLegacyToNewName(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("legacyToNewName(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+// withTempVersions 临时把 paths.VersionsDir 指向一个含给定版本目录的临时目录。
+// 返回恢复函数。隔离真实 ~/.jvm/versions。
+func withTempVersions(t *testing.T, versions ...string) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, v := range versions {
+		os.MkdirAll(filepath.Join(dir, v), 0o755)
+	}
+	orig := paths.VersionsDir
+	paths.VersionsDir = dir
+	t.Cleanup(func() { paths.VersionsDir = orig })
+}
+
+func TestResolveVersion(t *testing.T) {
+	// 模拟已装: 21.0.12+8, 21.0.5+11, 17.0.20+8, 8.0.502+7
+	withTempVersions(t, "21.0.12+8", "21.0.5+11", "17.0.20+8", "8.0.502+7")
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		// 路径 1: 纯大版本号取最新
+		{"纯大版本号取最新", "21", "21.0.12+8", false},
+		{"纯大版本号 JDK8", "8", "8.0.502+7", false},
+
+		// 路径 2: 完整版本号精确匹配
+		{"完整版本号", "21.0.12+8", "21.0.12+8", false},
+		{"带 jdk- 前缀", "jdk-21.0.12+8", "21.0.12+8", false},
+
+		// 路径 3: 少 build 号前缀匹配 (本次新增)
+		{"少 build 号命中最新", "21.0.12", "21.0.12+8", false},
+		{"少 build 号带前缀", "jdk-17.0.20", "17.0.20+8", false},
+
+		// 不命中的情况
+		{"不存在的精确版本", "21.0.99+8", "", true},
+		{"不存在的 core", "21.0.99", "", true},
+		{"不完整小版本", "21.0", "", true},
+		{"未安装的大版本", "99", "", true},
+		{"空串", "", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveVersion(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ResolveVersion(%q) 期望报错, got %q", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ResolveVersion(%q) 意外报错: %v", tt.input, err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ResolveVersion(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }

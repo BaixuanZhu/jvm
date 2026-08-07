@@ -114,6 +114,28 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 - 切换版本 = 重建 `current` 这个 junction 指向
 - 因为 PATH 没变，**任何新终端自动用新版本，无需刷新环境变量**
 
+## 配置文件（可选）
+
+jvm 默认用清华镜像源下载、安装 `x64` 架构的 JDK。如需更改，在 `~/.jvm/config.toml` 写：
+
+```toml
+# 下载镜像源 (默认清华 TUNA)。海外用户可改成官方或其他镜像。
+mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
+
+# 目标架构 (默认 x64)。Windows on ARM 设备用 aarch64。
+arch = "aarch64"
+```
+
+也可用环境变量临时覆盖（优先级高于配置文件），适合一次性切换：
+
+```powershell
+$env:JVM_MIRROR = "https://your.mirror/Adoptium"
+$env:JVM_ARCH = "aarch64"
+jvm install 21
+```
+
+不配置则使用默认值，无需创建文件。
+
 ## 自更新配置（jvm upgrade）
 
 `jvm upgrade` 通过 GitHub Release 更新 jvm 自身。使用前需配置：

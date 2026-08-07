@@ -169,10 +169,11 @@ func ParseAvailableArgs(args []string) (AvailableOptions, error) {
 
 // versionGroup 是分组输出里一个大版本的全部子版本 (已 ShortSemver 规整, 降序)。
 type versionGroup struct {
-	major    int
-	lts      bool
-	versions []string
-	failed   bool // 查询失败时为 true, versions 为空
+	major     int
+	lts       bool
+	versions  []string
+	failed    bool // 查询失败时为 true, versions 为空
+	truncated bool // 子版本数达 PageSize 上限, 可能被截断
 }
 
 // Available 处理 jvm available [-a | --major <N>]。
@@ -228,7 +229,7 @@ func availableTable() {
 
 // availableGroups 按 -a / --major 分组列出全部子版本。
 func availableGroups(opts AvailableOptions) {
-	fmt.Println("🔍 正在查询可安装的子版本 (page_size=50, 可能稍慢)...")
+	fmt.Println("🔍 正在查询可安装的子版本 (可能稍慢)...")
 
 	// 取大版本列表 + LTS 标记 (单次 API; --major 场景也用它拿 LTS 标记)
 	releases, err := adoptium.FetchAvailableReleases()
@@ -269,6 +270,10 @@ func availableGroups(opts AvailableOptions) {
 				for _, a := range assets {
 					g.versions = append(g.versions, adoptium.ShortSemver(a.Semver))
 				}
+				// 子版本数达上限, 可能被截断
+				if len(assets) >= adoptium.PageSize {
+					g.truncated = true
+				}
 			} else {
 				g.failed = true
 			}
@@ -278,6 +283,19 @@ func availableGroups(opts AvailableOptions) {
 	wg.Wait()
 
 	printAvailableGroups(groups)
+
+	// 若有任何大版本可能被截断, 提示用户
+	anyTruncated := false
+	for _, g := range groups {
+		if g.truncated {
+			anyTruncated = true
+			break
+		}
+	}
+	if anyTruncated {
+		fmt.Println()
+		fmt.Printf("⚠️  部分大版本的子版本可能超过 %d 条未完整显示, 可用 jvm available --major <N> 单独查看。\n", adoptium.PageSize)
+	}
 	fmt.Println()
 	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21.0.10+7")
 }

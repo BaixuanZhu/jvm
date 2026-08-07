@@ -172,11 +172,12 @@ func ListLocal() (names []string, currentTarget string) {
 	return names, currentTarget
 }
 
-// ResolveVersion 把用户输入解析到实际安装的版本目录名。规则 (刻意保持简单):
+// ResolveVersion 把用户输入解析到实际安装的版本目录名。规则:
 //  1. 纯大版本号 ("8" / "17" / "21"): 取该大版本下语义最新的 build。
-//  2. 其他: 必须是已安装目录的完整名字 (如 "jdk-17.0.20+8"), 一字不差。
+//  2. 完整版本号 ("25.0.4+7" / "jdk-25.0.4+7"): 精确匹配, 带不带 jdk- 前缀都行。
+//  3. 少 build 号的 core ("25.0.4"): 前缀匹配该 core 下语义最新的 build。
 //
-// 即只有"给大版本号"这一种模糊匹配; 想精确指定某个 build 就粘 jvm list 里的全名。
+// 即两种模糊形式: 给大版本号取该版本最新; 给 core (X.Y.Z) 取该 core 最新 build。
 func ResolveVersion(input string) (string, error) {
 	names, _ := ListLocal()
 	if len(names) == 0 {
@@ -205,12 +206,27 @@ func ResolveVersion(input string) (string, error) {
 	// 2. 精确匹配版本号: 带不带 jdk- 前缀都接受。
 	//    与 install/available 对齐 —— 它们用不带前缀的简短形式 (如 "25.0.4+7"),
 	//    所以 use/uninstall 也能这么写; 直接粘 list 里的全名 (jdk-25.0.4+7) 也行。
-	//    但少 build 号 (25.0.4) 或大小写不同仍报错, 保持严格。
 	want := stripPrefix(input)
 	for _, n := range names {
 		if n == input || stripPrefix(n) == want {
 			return n, nil
 		}
+	}
+
+	// 3. 少 build 号前缀匹配: 用 core (X.Y.Z) 匹配, 多候选取语义最新。
+	//    让 use 21.0.12 能命中 21.0.12+8, 不必记 build 号。
+	core := versionCore(input)
+	if core != stripPrefix(input) { // 输入含 build 号时已在步骤 2 处理, 这里只管 core
+		return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本", input)
+	}
+	var cands []string
+	for _, n := range names {
+		if versionCore(n) == core {
+			cands = append(cands, n)
+		}
+	}
+	if len(cands) > 0 {
+		return latestSemver(cands), nil
 	}
 	return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本 (可用大版本号取最新, 或完整版本号如 25.0.4+7)", input)
 }
@@ -405,6 +421,20 @@ func stripPrefix(s string) string {
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")
 	s = strings.TrimPrefix(s, "JDK")
+	return s
+}
+
+// versionCore 返回版本串的 core 部分 (去掉前缀和 build 号)。
+// "21.0.12+8"     → "21.0.12"
+// "jdk-21.0.12+8" → "21.0.12"
+// "21.0.12"       → "21.0.12"
+// 用于少 build 号的前缀匹配 (如 use 21.0.12 命中 21.0.12+8)。
+// 纯函数, 便于表驱动测试。
+func versionCore(s string) string {
+	s = stripPrefix(s)
+	if i := strings.IndexByte(s, '+'); i >= 0 {
+		return s[:i]
+	}
 	return s
 }
 

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"jvm/internal/app"
@@ -21,10 +22,41 @@ import (
 const (
 	// apiBase 是 Adoptium API 根地址
 	apiBase = "https://api.adoptium.net/v3"
-	// downloadMirror 是默认的国内下载镜像 (清华 TUNA, Adoptium 全量镜像)
-	// 文件结构: {mirror}/{major}/jdk/x64/windows/{filename}
-	downloadMirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
+
+	// PageSize 是 FetchAllAssets 单次请求的子版本上限。
+	// 当某大版本的 GA 子版本数恰好等于此值, 说明可能被截断 (实际可能更多)。
+	// 调用方可据此提示用户用 --major <N> 单独查看完整列表。
+	PageSize = 50
 )
+
+// 以下两项是可配置的包级状态, 默认值保持原有行为 (清华镜像 + x64 架构)。
+// 由 Configure() 在程序启动期一次性设置 (见 main.go), 之后进程内只读。
+// 沿用 paths.Root / app.HTTPClient 的"包级共享状态"惯例。
+var (
+	// mirror 是默认的国内下载镜像 (清华 TUNA, Adoptium 全量镜像)
+	// 文件结构: {mirror}/{major}/jdk/{arch}/windows/{filename}
+	mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
+
+	// arch 是目标架构, 用于 API 查询和镜像 URL 拼接
+	arch = "x64"
+)
+
+// Configure 在程序启动时设置架构和镜像源。非法 arch 回退 x64 并打印警告。
+// 供 main 包加载完配置后调用; 不调用时使用默认值 (清华镜像 + x64)。
+func Configure(cfgArch, cfgMirror string) {
+	a := strings.TrimSpace(cfgArch)
+	switch a {
+	case "x64", "aarch64":
+		arch = a
+	case "":
+		// 空值保持默认
+	default:
+		fmt.Fprintf(os.Stderr, "⚠️  不支持的架构 %q (仅支持 x64 / aarch64), 回退 x64\n", a)
+	}
+	if m := strings.TrimSpace(cfgMirror); m != "" {
+		mirror = m
+	}
+}
 
 // AssetInfo 表示一次查询返回的可用 JDK 资源
 type AssetInfo struct {
@@ -59,11 +91,11 @@ type AvailableRelease struct {
 	LTS   bool
 }
 
-// assetFromRecord 从一条 release 记录里提取 Windows/x64 的 zip 资源
+// assetFromRecord 从一条 release 记录里提取当前架构 (Windows/{arch}) 的 zip 资源
 // 两个端点 (feature_releases / release_name) 共用这个逻辑
 func assetFromRecord(r releaseRecord, hint string) (*AssetInfo, error) {
 	if len(r.Binaries) == 0 {
-		return nil, fmt.Errorf("%s 没有 Windows/x64 的 zip 包", hint)
+		return nil, fmt.Errorf("%s 没有 Windows/%s 的 zip 包", hint, arch)
 	}
 	for _, b := range r.Binaries {
 		if b.Package.Link != "" {
@@ -78,11 +110,11 @@ func assetFromRecord(r releaseRecord, hint string) (*AssetInfo, error) {
 	return nil, fmt.Errorf("%s 没有可下载的 zip 包", hint)
 }
 
-// FetchLatestAsset 查询指定大版本的最新 GA 版本, 返回 Windows/x64 的 zip 资源。
+// FetchLatestAsset 查询指定大版本的最新 GA 版本, 返回当前架构的 zip 资源。
 func FetchLatestAsset(major int) (*AssetInfo, error) {
 	u := fmt.Sprintf(
-		"%s/assets/feature_releases/%d/ga?architecture=x64&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse",
-		apiBase, major,
+		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse",
+		apiBase, major, arch,
 	)
 	body, err := httpGetJSON(u)
 	if err != nil {
@@ -99,12 +131,15 @@ func FetchLatestAsset(major int) (*AssetInfo, error) {
 	return assetFromRecord(releases[0], fmt.Sprintf("大版本 %d", major))
 }
 
-// FetchAllAssets 查询指定大版本的全部 GA 子版本 (page_size=50 取全量),
+// FetchAllAssets 查询指定大版本的全部 GA 子版本 (page_size=PageSize 取全量),
 // 返回顺序与 API 一致 (最新在前)。供 jvm available -a / --major 使用。
+//
+// 注意: 当返回条数恰好等于 PageSize, 说明可能被截断 (该大版本实际可能更多)。
+// 调用方应用 len(result) == PageSize 自行判断并提示用户。
 func FetchAllAssets(major int) ([]*AssetInfo, error) {
 	u := fmt.Sprintf(
-		"%s/assets/feature_releases/%d/ga?architecture=x64&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse&page_size=50",
-		apiBase, major,
+		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse&page_size=%d",
+		apiBase, major, arch, PageSize,
 	)
 	body, err := httpGetJSON(u)
 	if err != nil {
@@ -190,8 +225,8 @@ func ShortSemver(semver string) string {
 // 注意: 该端点返回单个对象 (不是数组)
 func FetchAssetByReleaseName(releaseName string) (*AssetInfo, error) {
 	u := fmt.Sprintf(
-		"%s/assets/release_name/eclipse/%s?architecture=x64&os=windows&image_type=jdk&heap_size=normal",
-		apiBase, url.PathEscape(releaseName),
+		"%s/assets/release_name/eclipse/%s?architecture=%s&os=windows&image_type=jdk&heap_size=normal",
+		apiBase, url.PathEscape(releaseName), arch,
 	)
 	body, err := httpGetJSON(u)
 	if err != nil {
@@ -226,8 +261,8 @@ func ResolveReleaseName(version string) (string, error) {
 	}
 
 	u := fmt.Sprintf(
-		"%s/assets/feature_releases/%d/ga?architecture=x64&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse",
-		apiBase, major,
+		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse",
+		apiBase, major, arch,
 	)
 	body, err := httpGetJSON(u)
 	if err != nil {
@@ -278,8 +313,8 @@ func ResolveReleaseName(version string) (string, error) {
 // 端点: /v3/binary/latest/{major}/ga/windows/x64/jdk/hotspot/normal/eclipse
 func ResolveCDNURL(major int) (string, error) {
 	endpoint := fmt.Sprintf(
-		"%s/binary/latest/%d/ga/windows/x64/jdk/hotspot/normal/eclipse",
-		apiBase, major,
+		"%s/binary/latest/%d/ga/windows/%s/jdk/hotspot/normal/eclipse",
+		apiBase, major, arch,
 	)
 	noRedirectClient := &http.Client{
 		Timeout: 30 * 1e9, // 30s
@@ -316,7 +351,7 @@ func MirrorDownloadURL(officialURL string, major int) string {
 	if decoded, err := url.QueryUnescape(filename); err == nil {
 		filename = decoded
 	}
-	return fmt.Sprintf("%s/%d/jdk/x64/windows/%s", downloadMirror, major, filename)
+	return fmt.Sprintf("%s/%d/jdk/%s/windows/%s", mirror, major, arch, filename)
 }
 
 // httpGetJSON 发 GET 请求并返回 body

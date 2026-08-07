@@ -2,7 +2,8 @@
 //
 // 机制: 调 GitHub API /repos/{owner}/{repo}/releases/latest 拿最新 release,
 // 比对 tag_name 和当前版本, 下载约定的 asset (zip), 解压出 jvm.exe 并替换。
-// Windows 不能覆盖运行中的 exe, 但能重命名: 旧 exe → .bak, 新 exe 移到位, 启动时清理。
+// Windows 不能覆盖运行中的 exe, 但能重命名: 旧 exe → .bak, 新 exe 移到位;
+// .bak 若因旧进程占用没删掉, 由 CleanupStaleBak 在下次启动时清理。
 //
 // 部署说明 (发 release 时):
 //   - tag 用 v0.2.0 格式
@@ -279,4 +280,28 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// CleanupStaleBak 清理可能残留的 jvm.exe.bak。
+//
+// replaceSelf 在升级时把旧 exe 重命名为 .bak, 替换成功后立即尝试删除;
+// 但旧 exe 仍在运行时删不掉 (Windows 文件锁), 故 .bak 可能残留。
+// 本函数在 jvm 每次启动时调用, 清掉上次升级遗留的 .bak, 兑现包注释的"启动时清理"承诺。
+// 失败静默忽略 (.bak 仍被占用或权限不足不阻断主流程)。
+func CleanupStaleBak() {
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cleanupBakAt(exePath)
+}
+
+// cleanupBakAt 清理 exePath 对应的 .bak 文件。纯路径操作, 便于表驱动测试。
+// 返回是否实际删除了文件 (不存在视为无需清理)。
+func cleanupBakAt(exePath string) bool {
+	bakPath := exePath + ".bak"
+	if _, err := os.Stat(bakPath); err != nil {
+		return false // 不存在, 无需清理
+	}
+	return os.Remove(bakPath) == nil
 }

@@ -7,6 +7,23 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-07
+
+### 新增
+- 配置文件支持 (`~/.jvm/config.toml`): 可配置镜像源 (`mirror`) 和目标架构
+  (`arch`, 支持 `x64` / `aarch64`, 服务 Windows on ARM 设备)。环境变量
+  `JVM_MIRROR` / `JVM_ARCH` 可临时覆盖 (优先级高于文件)。
+- `jvm use <X.Y.Z>` 支持少 build 号匹配: 如 `jvm use 21.0.12` 自动命中
+  `21.0.12+8`, 不必记 build 号 (与 `install` 的输入习惯对齐)。
+
+### 变更
+- `jvm upgrade` 的 `.bak` 残留现在在 jvm 启动时自动清理, 兑现了既有注释承诺。
+- `jvm available -a` 某大版本子版本数达上限 (50) 时提示可能未完整显示,
+  引导用 `--major <N>` 单独查看。
+
+### 修复
+- 移除 `adoptium` 包里镜像 URL 和架构的硬编码, 改为可配置包级状态。
+
 ## [0.3.1] - 2026-08-07
 
 ### 变更
@@ -77,7 +94,8 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/BaixuanZhu/jvm/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/BaixuanZhu/jvm/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/BaixuanZhu/jvm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BaixuanZhu/jvm/compare/v0.1.4...v0.2.0

@@ -1,6 +1,8 @@
 package upgrade
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -55,6 +57,47 @@ deadbeef  other-file.txt
 	t.Run("空文本", func(t *testing.T) {
 		if _, ok := parseChecksum("", "jvm-windows-amd64.zip"); ok {
 			t.Error("空文本应返回 ok=false")
+		}
+	})
+}
+
+func TestCleanupBakAt(t *testing.T) {
+	t.Run("存在 .bak 则删除", func(t *testing.T) {
+		dir := t.TempDir()
+		exePath := filepath.Join(dir, "jvm.exe")
+		bakPath := exePath + ".bak"
+		os.WriteFile(bakPath, []byte("old binary"), 0o644)
+
+		removed := cleanupBakAt(exePath)
+		if !removed {
+			t.Error("应返回 true (实际删除)")
+		}
+		if _, err := os.Stat(bakPath); !os.IsNotExist(err) {
+			t.Errorf(".bak 应已被删除, stat err=%v", err)
+		}
+	})
+	t.Run(".bak 不存在返回 false", func(t *testing.T) {
+		dir := t.TempDir()
+		exePath := filepath.Join(dir, "jvm.exe")
+		removed := cleanupBakAt(exePath)
+		if removed {
+			t.Error("不存在时应返回 false")
+		}
+	})
+	t.Run("不影响 exe 本身", func(t *testing.T) {
+		dir := t.TempDir()
+		exePath := filepath.Join(dir, "jvm.exe")
+		os.WriteFile(exePath, []byte("current"), 0o644)
+		os.WriteFile(exePath+".bak", []byte("old"), 0o644)
+
+		cleanupBakAt(exePath)
+
+		data, err := os.ReadFile(exePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "current" {
+			t.Errorf("exe 内容不应改变, got %q", data)
 		}
 	})
 }
