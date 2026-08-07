@@ -31,6 +31,8 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" | 
 
 脚本会自动下载最新 Release、校验 SHA256、解压到 `%LOCALAPPDATA%\Programs\jvm`，并运行一次 jvm 完成自举（注册用户 PATH + 注入 shell 集成）。装完**重开一次终端**即可使用。
 
+> 安装脚本输出为英文，目的是兼容 `iwr | iex` 管道下 PowerShell 5.1 的编码处理（带中文/BOM 的脚本在该管道会解析失败）。jvm 本身的 CLI 仍是中文。
+
 想自定义安装目录，把脚本下到本地再传参：
 
 ```powershell

@@ -1,60 +1,67 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
-    jvm 一键安装脚本 (PowerShell)。
+    jvm one-line installer (PowerShell).
 .DESCRIPTION
-    下载最新 Release 的便携 zip, 校验 SHA256, 解压到用户目录, 运行一次 jvm.exe
-    触发其内置自举 (注册用户 PATH + 注入 PowerShell/bash shell 集成)。
-    行为对齐 NSIS 安装器 (installer/jvm.nsi), 仅 Windows x64。
+    Downloads the latest Release's portable zip, verifies SHA256, extracts to a
+    user directory, and runs jvm.exe once to trigger its built-in self-bootstrap
+    (registers user PATH + injects PowerShell/bash shell integration).
+    Behavior mirrors the NSIS installer (installer/jvm.nsi). Windows x64 only.
 
-    用法:
-      一键安装 (用全部默认值):
+    NOTE: Script output is intentionally English. Under `iwr | iex` the response
+    body is decoded by the host's default code page; a UTF-8 BOM would be treated
+    as content bytes and break parsing on PowerShell 5.1. Keeping the file BOM-less
+    with ASCII-only string literals makes `iwr -useb <url> | iex` work everywhere.
+
+    Usage:
+      One-line install (all defaults):
         iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" | iex
-      本地传参:
+      Local with params:
         .\install.ps1 -InstallDir "D:\tools\jvm"
 
-    环境变量:
-      JVM_INSTALLER_MIRROR  指向镜像/自建源的下载前缀, 末尾带斜杠。
-                            例如国内可设为 ghproxy 类前缀。默认走 GitHub Release。
-      HTTPS_PROXY / HTTP_PROXY  PowerShell 原生代理, 透传给 Invoke-WebRequest。
+    Environment variables:
+      JVM_INSTALLER_MIRROR  Download URL prefix override (trailing slash optional).
+                            Useful for a mirror / self-hosted source.
+                            Defaults to the GitHub Release feed.
+      HTTPS_PROXY / HTTP_PROXY  Honored natively by Invoke-WebRequest.
 #>
 [CmdletBinding()]
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\jvm')
 )
 
-# 始终启用 TLS 1.2, 兼容老系统默认只开 TLS 1.0 的情形。
+# Force TLS 1.2 (old systems may default to TLS 1.0 only).
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocol]::Tls12
 } catch {
-    # PS 7+ 走 HttpClient, 不依赖此设置, 忽略即可。
+    # PS 7+ uses HttpClient and ignores this setting.
 }
 
 $ErrorActionPreference = 'Stop'
 
 # -----------------------------------------------------------------------------
-# 辅助输出: 中文 + 颜色
+# Colored output helpers.
 # -----------------------------------------------------------------------------
 function Write-Info { param([string]$Msg) Write-Host $Msg -ForegroundColor Cyan }
-function Write-Ok { param([string]$Msg) Write-Host $Msg -ForegroundColor Green }
+function Write-Ok   { param([string]$Msg) Write-Host $Msg -ForegroundColor Green }
 function Write-Warn { param([string]$Msg) Write-Host $Msg -ForegroundColor Yellow }
-function Write-Err { param([string]$Msg) Write-Host $Msg -ForegroundColor Red }
+function Write-Err  { param([string]$Msg) Write-Host $Msg -ForegroundColor Red }
 
 # -----------------------------------------------------------------------------
-# 下载一个 URL 到本地文件 (兼容 PS 5.1, 用 -UseBasicParsing 避免 IE 引擎依赖)。
+# Download a URL to a local file (PS 5.1 compatible; -UseBasicParsing avoids
+# the IE engine dependency).
 # -----------------------------------------------------------------------------
 function Save-Url {
     param([string]$Url, [string]$Destination)
-    # 5.1 的 IWR 不认 -ResponseHeadersVariable 等, 用最朴素参数集。
     Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -ErrorAction Stop
 }
 
 # -----------------------------------------------------------------------------
-# 解析 GNU coreutils sha256sum 文本, 兼容两种格式:
-#   "<hash>  <filename>"  text 模式 (两个空格, 无星号)
-#   "<hash> *<filename>"  binary 模式 (一个空格 + 前导星号)
-# 与 internal/upgrade/upgrade.go 的 parseChecksum 逻辑一一对应。
-# 返回找到的 hash (小写 hex), 找不到返回 $null。
+# Parse GNU coreutils sha256sum text, supporting both formats:
+#   "<hash>  <filename>"  text mode   (two spaces, no asterisk)
+#   "<hash> *<filename>"  binary mode (one space + leading asterisk)
+# Mirrors internal/upgrade/upgrade.go parseChecksum exactly.
+# Returns the lowercase hex hash, or $null if not found.
 # -----------------------------------------------------------------------------
 function Get-ExpectedChecksum {
     param([string]$ChecksumText, [string]$Filename)
@@ -71,37 +78,37 @@ function Get-ExpectedChecksum {
 }
 
 # =============================================================================
-# 主流程
+# Main flow
 # =============================================================================
 try {
-    Write-Info '==> jvm 一键安装'
+    Write-Info '==> jvm installer'
 
-    # ---- 1. 环境校验 ---------------------------------------------------------
+    # ---- 1. Environment check ------------------------------------------------
     if (-not [System.Environment]::Is64BitOperatingSystem) {
-        throw '当前系统不是 64 位 Windows。jvm 仅支持 Windows x64。'
+        throw 'This system is not 64-bit Windows. jvm supports Windows x64 only.'
     }
 
-    # ---- 2. 解析下载源 -------------------------------------------------------
+    # ---- 2. Resolve download source ------------------------------------------
     $base = if ($env:JVM_INSTALLER_MIRROR) { $env:JVM_INSTALLER_MIRROR.TrimEnd('/') + '/' } else { 'https://github.com/BaixuanZhu/jvm/releases/latest/download/' }
     $zipName = 'jvm-windows-amd64.zip'
     $checksumName = 'checksums.txt'
     $zipUrl = $base + $zipName
     $checksumUrl = $base + $checksumName
-    Write-Info "下载源: $base"
+    Write-Info "Source: $base"
 
-    # ---- 3. 准备工作目录 -----------------------------------------------------
+    # ---- 3. Prepare working directory ----------------------------------------
     $workDir = Join-Path $env:TEMP ("jvm-install-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $workDir -Force | Out-Null
     $zipPath = Join-Path $workDir $zipName
     $checksumPath = Join-Path $workDir $checksumName
 
     try {
-        # ---- 4. 下载 zip -----------------------------------------------------
-        Write-Info "下载 $zipName ..."
+        # ---- 4. Download the zip ---------------------------------------------
+        Write-Info "Downloading $zipName ..."
         Save-Url -Url $zipUrl -Destination $zipPath
-        Write-Ok "下载完成: $zipPath"
+        Write-Ok "Downloaded: $zipPath"
 
-        # ---- 5. 校验 SHA256 (与 jvm upgrade 共用 checksums.txt) --------------
+        # ---- 5. Verify SHA256 (shares checksums.txt with `jvm upgrade`) ------
         $expected = $null
         $hasChecksum = $false
         try {
@@ -110,101 +117,107 @@ try {
             $expected = Get-ExpectedChecksum -ChecksumText $checksumText -Filename $zipName
             $hasChecksum = $true
         } catch {
-            # Release 没有 checksums.txt (旧版本/镜像缺失), 仅警告不阻断, 与 upgrade.go 向后兼容语义一致。
-            Write-Warn "未取到 $checksumName, 跳过 SHA256 校验 (继续安装)。"
+            # Release has no checksums.txt (old version / mirror missing): warn but continue,
+            # matching upgrade.go's backward-compatible behavior.
+            Write-Warn "Could not fetch $checksumName; skipping SHA256 verification."
         }
 
         if ($hasChecksum) {
             if (-not $expected) {
-                throw "$checksumName 里没有找到 $zipName 的条目, 校验中止。"
+                throw "No entry for $zipName in $checksumName; aborting verification."
             }
             $actual = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLower()
-            Write-Info "期望 SHA256: $expected"
-            Write-Info "实际 SHA256: $actual"
+            Write-Info "Expected SHA256: $expected"
+            Write-Info "Actual   SHA256: $actual"
             if ($actual -ne $expected) {
-                throw "SHA256 校验失败, 下载文件可能损坏或被篡改, 已中止安装。"
+                throw 'SHA256 verification failed; the download may be corrupted or tampered with. Aborting.'
             }
-            Write-Ok 'SHA256 校验通过'
+            Write-Ok 'SHA256 verified'
         }
 
-        # ---- 6. 安装目录 + 处理旧 jvm.exe (升级场景) -------------------------
-        Write-Info "安装目录: $InstallDir"
+        # ---- 6. Install dir + handle existing jvm.exe (upgrade scenario) -----
+        Write-Info "Install dir: $InstallDir"
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
         $exePath = Join-Path $InstallDir 'jvm.exe'
         if (Test-Path $exePath) {
-            # 运行中的 exe 不能覆盖但能改名 (复刻 upgrade.go replaceSelf 的 .bak 策略)。
+            # A running exe cannot be overwritten but can be renamed (mirrors
+            # upgrade.go replaceSelf's .bak strategy).
             $bak = Join-Path $InstallDir 'jvm.exe.bak'
             if (Test-Path $bak) { Remove-Item $bak -Force }
             try {
                 Rename-Item -Path $exePath -NewName 'jvm.exe.bak' -Force
-                Write-Warn '检测到旧版 jvm.exe, 已备份为 jvm.exe.bak。'
+                Write-Warn 'Existing jvm.exe found; backed up as jvm.exe.bak.'
             } catch {
-                throw "无法替换现有的 jvm.exe (可能正在运行): $($_.Exception.Message)。请关闭所有 jvm 进程后重试。"
+                throw "Cannot replace the existing jvm.exe (it may be running): $($_.Exception.Message). Close all jvm processes and retry."
             }
         }
 
-        # ---- 7. 解压 zip 里的 jvm.exe (单文件, 直接 ExtractToFile) -----------
+        # ---- 7. Extract jvm.exe from the zip (single file, ExtractToFile) ----
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         try {
             $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
             try {
                 $entry = $archive.Entries | Where-Object { $_.Name -eq 'jvm.exe' } | Select-Object -First 1
                 if (-not $entry) {
-                    throw "zip 里找不到 jvm.exe, 安装包结构异常。"
+                    throw 'jvm.exe not found inside the zip; the package is malformed.'
                 }
                 [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $exePath, $true)
             } finally {
                 $archive.Dispose()
             }
         } catch {
-            throw "解压失败: $($_.Exception.Message)"
+            throw "Extraction failed: $($_.Exception.Message)"
         }
-        Write-Ok "已解压: $exePath"
+        Write-Ok "Extracted: $exePath"
 
-        # ---- 8. 记录安装位置 (与 installer/jvm.nsi 的 HKCU\Software\jvm\InstallDir 一致,
-        #         便于 jvm upgrade 复用同目录语义)。不写「程序和功能」卸载项 ——
-        #         脚本安装无 uninstaller, 写了反而误导用户。 ---------------------
+        # ---- 8. Record install location (matches installer/jvm.nsi
+        #         HKCU\Software\jvm\InstallDir, so `jvm upgrade` can reuse the
+        #         same dir). We do NOT add an "Add/Remove Programs" entry: there
+        #         is no uninstaller for a script install, and a leftover entry
+        #         would mislead users. -----------------------------------------
         try {
             New-Item -Path 'HKCU:\Software\jvm' -Force | Out-Null
             Set-ItemProperty -Path 'HKCU:\Software\jvm' -Name 'InstallDir' -Value $InstallDir
         } catch {
-            # 注册表写失败不致命, jvm 自举仍会靠 os.Executable() 推导目录。
-            Write-Warn "写入注册表 HKCU\Software\jvm\InstallDir 失败 (不影响安装): $($_.Exception.Message)"
+            # Non-fatal: jvm's bootstrap still derives its dir via os.Executable().
+            Write-Warn "Failed to write HKCU\Software\jvm\InstallDir (non-fatal): $($_.Exception.Message)"
         }
 
-        # ---- 9. 运行一次 jvm.exe 触发自举 (注册用户 PATH + 注入 shell 集成) --
-        # 这是与 NSIS SecConfig (installer/jvm.nsi:80-86) 等价的一步。
-        Write-Info '触发自举 (配置 PATH 和 shell 集成) ...'
+        # ---- 9. Run jvm.exe once to trigger self-bootstrap
+        # (registers user PATH + injects shell integration). This is the
+        # equivalent of NSIS SecConfig (installer/jvm.nsi:80-86). -------------
+        Write-Info 'Triggering bootstrap (PATH + shell integration) ...'
         try {
             $versionOutput = & $exePath version 2>&1 | Out-String
             $versionLine = ($versionOutput -split "`n" | Where-Object { $_ -match '\S' } | Select-Object -First 1)
         } catch {
-            # 自举失败不回滚已解压的 exe, 用户可手动跑一次 jvm version 排查。
-            Write-Warn "首次运行 jvm.exe 失败 (PATH/shell 集成可能未完成): $($_.Exception.Message)"
+            # Bootstrap failure does not roll back the extracted exe; the user
+            # can manually run `jvm version` to diagnose.
+            Write-Warn "First run of jvm.exe failed (PATH/shell integration may be incomplete): $($_.Exception.Message)"
         }
 
-        # ---- 10. 完成 --------------------------------------------------------
+        # ---- 10. Done --------------------------------------------------------
         Write-Ok ''
-        Write-Ok '✅ 安装完成!'
-        if ($versionLine) { Write-Ok "   版本: $($versionLine.Trim())" }
-        Write-Ok "   路径: $exePath"
+        Write-Ok 'Installation complete.'
+        if ($versionLine) { Write-Ok "   version: $($versionLine.Trim())" }
+        Write-Ok "   path:    $exePath"
         Write-Info ''
-        Write-Info '下一步:'
-        Write-Info '  1. 重开一次终端 (让 PATH 和 shell 集成生效)'
-        Write-Info '  2. jvm install 21      # 装 JDK'
-        Write-Info '  3. jvm use 21          # 切换到它'
+        Write-Info 'Next steps:'
+        Write-Info '  1. Open a new terminal (so PATH and shell integration take effect)'
+        Write-Info '  2. jvm install 21      # install a JDK'
+        Write-Info '  3. jvm use 21          # switch to it'
         Write-Info ''
-        Write-Info '卸载: 删除整个安装目录即可 (用户数据在 ~/.jvm, 不会被删)。'
+        Write-Info 'Uninstall: delete the install directory (user data in ~/.jvm is untouched).'
     } finally {
-        # 清理临时目录 (无论成功失败)。
+        # Clean up the temp dir (on both success and failure).
         if (Test-Path $workDir) {
             Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 } catch {
-    # 友好打印 + 重新抛出, 保证 .\install.ps1 直接运行时退出码非 0。
-    # iwr | iex 模式下 throw 不会关闭会话, 只显示错误记录。
+    # Friendly message + rethrow so `.\install.ps1` exits non-zero.
+    # Under `iwr | iex`, throw does not close the session, it just prints the error record.
     Write-Err ''
-    Write-Err "❌ 安装失败: $($_.Exception.Message)"
+    Write-Err "Installation failed: $($_.Exception.Message)"
     throw
 }
