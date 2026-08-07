@@ -357,3 +357,44 @@ func TestDisplayName(t *testing.T) {
 		}
 	}
 }
+
+// TestMigrateLegacyDirs 覆盖三种目录的处理:
+//   - 遗留 jdk- 前缀目录 → 迁移到纯 semver (回归保护: splitDistro 会把 jdk-21.0.12+8
+//     拆成 ("jdk", "21.0.12+8"), 新格式跳过逻辑必须不误伤这种该迁移的目录)
+//   - 纯 semver 旧目录 → 跳过 (已是规范)
+//   - {distro}-{semver} 新目录 → 跳过 (新命名规范)
+func TestMigrateLegacyDirs(t *testing.T) {
+	withTempVersions(t,
+		"jdk-21.0.12+8",        // 遗留: 应迁移成 21.0.12+8
+		"jdk8u502-b07",         // 遗留: 应迁移成 8.0.502+7
+		"17.0.20+8",            // 纯 semver: 跳过
+		"temurin-11.0.32+9",    // 新命名: 跳过
+		"corretto-21.0.12.8.1", // 新命名: 跳过
+	)
+
+	if err := MigrateLegacyDirs(); err != nil {
+		t.Fatalf("MigrateLegacyDirs: %v", err)
+	}
+
+	entries, err := os.ReadDir(paths.VersionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, e := range entries {
+		got[e.Name()] = true
+	}
+
+	// 迁移后应存在的目录
+	for _, want := range []string{"21.0.12+8", "8.0.502+7", "17.0.20+8", "temurin-11.0.32+9", "corretto-21.0.12.8.1"} {
+		if !got[want] {
+			t.Errorf("迁移后缺少目录 %q", want)
+		}
+	}
+	// 旧名应已不存在
+	for _, gone := range []string{"jdk-21.0.12+8", "jdk8u502-b07"} {
+		if got[gone] {
+			t.Errorf("迁移后旧目录 %q 仍存在 (应已重命名)", gone)
+		}
+	}
+}

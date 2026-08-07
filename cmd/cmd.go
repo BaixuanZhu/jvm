@@ -55,13 +55,14 @@ func Use(arg string) {
 		app.Fail(err.Error())
 	}
 	target := filepath.Join(paths.VersionsDir, dir)
+	display := junction.DisplayName(dir) // 归一化为 {distro}-{version} 展示
 
-	fmt.Printf("🔄 切换到 %s ...\n", dir)
+	fmt.Printf("🔄 切换到 %s ...\n", display)
 	if err := switchTo(target); err != nil {
 		app.Fail(err.Error())
 	}
 
-	fmt.Printf("✅ 已切换到 %s\n", dir)
+	fmt.Printf("✅ 已切换到 %s\n", display)
 	fmt.Println()
 	fmt.Println("📌 已设置:")
 	fmt.Printf("   JAVA_HOME = %s\n", paths.CurrentLink)

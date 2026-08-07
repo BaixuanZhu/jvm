@@ -325,7 +325,7 @@ func legacyToNewName(name string) string {
 // 由 main 在自举阶段调用 (幂等, 无网络, 纯字符串规则)。
 //
 // 行为:
-//   - 符合新规范的目录跳过。
+//   - 符合新规范的目录跳过 (含纯 semver 旧目录和 {distro}-{semver} 新命名)。
 //   - 旧目录 (jdk-X.Y.Z+B / jdk{N}u{U}-b{B}) 就地 rename 成新名。
 //   - 新名已存在 → 跳过并提示 (用户可能已装新名版本)。
 //   - current 链接若指向被 rename 的旧目录, rename 后重建指向新路径。
@@ -351,11 +351,19 @@ func MigrateLegacyDirs() error {
 		}
 		name := e.Name()
 		if newDirNameRe.MatchString(name) {
-			continue // 已是新规范
+			continue // 已是新规范 (纯 semver, 旧的无前缀目录)
 		}
 		newName := legacyToNewName(name)
 		if newName == "" {
-			fmt.Fprintf(os.Stderr, "⚠️  跳过无法识别的目录: %s (不是 Temurin 版本目录)\n", name)
+			// 非遗留目录。可能是新的 {distro}-{version} 命名 —— 各发行版版本号格式不一
+			// (Temurin 用 21.0.5+11, Corretto 用 21.0.12.8.1), 不能用固定正则判断。
+			// 这里用 majorOf: 只要 distro 前缀后能解析出合法大版本号, 就视为有效目录跳过。
+			// 注意必须放在 legacyToNewName 之后 —— splitDistro 会把遗留的 jdk-21.0.12+8
+			// 拆出 "jdk" 前缀, 若先判这里会误跳过该迁移的目录。
+			if majorOf(name) > 0 {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "⚠️  跳过无法识别的目录: %s (不是已知的 JDK 版本目录)\n", name)
 			continue
 		}
 		if newName == name {
