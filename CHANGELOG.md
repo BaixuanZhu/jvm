@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-07
+
+### 变更
+- 升级 release workflow 依赖的 GitHub Actions 到最新主版本, 消除
+  Node.js 20 已弃用的警告:
+  `actions/checkout@v5→v7`、`actions/setup-go@v6→v7`、
+  `softprops/action-gh-release@v2→v3`。
+
 ## [0.3.0] - 2026-08-07
 
 ### 新增
@@ -69,7 +77,8 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/BaixuanZhu/jvm/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/BaixuanZhu/jvm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BaixuanZhu/jvm/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/BaixuanZhu/jvm/compare/v0.1.3...v0.1.4
