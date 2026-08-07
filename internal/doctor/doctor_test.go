@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"jvm/internal/junction"
 )
 
 // === checkDirs ===
@@ -52,8 +54,11 @@ func TestCheckDirs(t *testing.T) {
 
 // === checkJunction ===
 //
-// 注意: Windows junction (reparse point) 在 Go 里 os.Symlink 检测行为依赖版本,
-// 这些测试只覆盖能跨平台稳定复现的分支: 链接不存在 / 普通目录 / 有效符号链接。
+// v0.4.1 修复: 之前用 os.Lstat 的 ModeSymlink 位判断"是否是链接", 但 Windows
+// junction (reparse point) 在 Go 里不设置 ModeSymlink (那是给真 symlink 的),
+// 导致 doctor 对所有 junction 误报"不是链接"。现在改用 os.Readlink 成功与否判断。
+// 下面的测试覆盖各分支, 包括用真实 Windows junction 验证 (junction.Create 走原生
+// syscall, 不需要管理员/开发者模式, 故可稳定复现)。
 
 func TestCheckJunction(t *testing.T) {
 	t.Run("链接不存在", func(t *testing.T) {
@@ -76,8 +81,7 @@ func TestCheckJunction(t *testing.T) {
 		}
 	})
 	t.Run("有效符号链接指向真实目录", func(t *testing.T) {
-		// 创建符号链接需要管理员或开发者模式; 跳过以避免在受限环境失败。
-		// 该分支靠 jvm doctor 实跑覆盖 (已验证)。
+		// 真 symlink 需要管理员或开发者模式; 跳过以避免在受限环境失败。
 		if skipSymlinkTest(t) {
 			return
 		}
@@ -91,6 +95,57 @@ func TestCheckJunction(t *testing.T) {
 			t.Errorf("期望通过, got detail=%q", c.detail)
 		}
 	})
+	t.Run("真实 Windows junction 指向真实目录", func(t *testing.T) {
+		// junction (而非 symlink) 是 jvm 实际用的链接形式, 也是 v0.4.1 修复的回归点:
+		// 之前 checkJunction 对所有 junction 都误报。junction.Create 走原生 syscall,
+		// 不需要管理员/开发者模式, 可在普通用户态稳定运行。
+		//
+		// 注意: 用 ASCII 前缀的 os.MkdirTemp 而非 t.TempDir —— Go 会把子测试名
+		// (含中文) 拼进 t.TempDir 路径, 而 Windows junction 的 reparse point 解析
+		// 对含非 ANSI 字符的路径有兼容问题, 会污染测试。真实 ~/.jvm 路径无此问题。
+		c := testJunctionCase(t, false)
+		if !c.ok {
+			t.Errorf("期望通过 (junction 是有效链接), got detail=%q", c.detail)
+		}
+	})
+	t.Run("悬空 junction (目标已删)", func(t *testing.T) {
+		c := testJunctionCase(t, true)
+		if c.ok {
+			t.Error("期望失败 (悬空 junction)")
+		}
+		if !strings.Contains(c.detail, "目标不存在") {
+			t.Errorf("detail 应提示目标不存在, got %q", c.detail)
+		}
+	})
+}
+
+// testJunctionCase 建一个真实 Windows junction 测 checkJunction。
+// dangle=true 时建好后删掉 target 让链接悬空。返回 checkJunction 的结果。
+func testJunctionCase(t *testing.T, dangle bool) check {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("junction 测试仅 Windows")
+	}
+	target, err := os.MkdirTemp("", "jvm-tgt-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := os.MkdirTemp("", "jvm-lnk-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.RemoveAll(target)
+		os.RemoveAll(parent)
+	})
+	link := filepath.Join(parent, "current")
+	if err := junction.Create(link, target); err != nil {
+		t.Skipf("无法创建 junction: %v", err)
+	}
+	if dangle {
+		os.RemoveAll(target)
+	}
+	return checkJunction(link)
 }
 
 // === checkJavaHome ===

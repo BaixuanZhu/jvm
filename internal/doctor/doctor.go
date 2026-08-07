@@ -111,9 +111,13 @@ func checkDirs(root, versionsDir string) check {
 }
 
 // checkJunction 检查 current 链接是否有效。
+//
+// 判断"是否是链接"用 os.Readlink 是否成功为准 —— 不能用 os.Lstat 的 ModeSymlink 位:
+// Windows junction (IO_REPARSE_TAG_MOUNT_POINT) 在 Go 里 Lstat 不设置 ModeSymlink
+// (那是给真 symlink IO_REPARSE_TAG_SYMLINK 的), 而是设置 ModeIrregular。
+// 但 os.Readlink 对 junction 和 symlink 都能正确解析 (Go 1.20+)。
 func checkJunction(link string) check {
-	info, err := os.Lstat(link)
-	if err != nil {
+	if _, err := os.Lstat(link); err != nil {
 		return check{
 			ok:     false,
 			name:   "current 链接",
@@ -121,24 +125,14 @@ func checkJunction(link string) check {
 			fix:    "运行 jvm use <版本号> 选择一个版本",
 		}
 	}
-	// junction/symlink 用 Lstat 看 Mode() 的 Symlink 位; 但 Windows junction
-	// (reparse point) Lstat 也能拿到, 再用 Readlink 解析目标。
-	if info.Mode()&os.ModeSymlink == 0 {
-		// 可能是普通目录 (旧版残留或手动建的), 也算异常
+	target, err := os.Readlink(link)
+	if err != nil || target == "" {
+		// current 存在但 Readlink 失败 → 是普通目录而非链接 (旧版残留或手动建的)
 		return check{
 			ok:     false,
 			name:   "current 链接",
 			detail: "current 不是链接 (可能是普通目录)",
 			fix:    "删除后重新 jvm use <版本号>",
-		}
-	}
-	target, err := os.Readlink(link)
-	if err != nil || target == "" {
-		return check{
-			ok:     false,
-			name:   "current 链接",
-			detail: "无法解析 current 指向的目标",
-			fix:    "jvm use <版本号> 重建链接",
 		}
 	}
 	// 验证目标真实存在 (指向已被删除的版本目录 = 悬空链接)

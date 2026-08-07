@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-07
+
+### 修复
+- `jvm upgrade` 的 SHA256 校验一直被静默跳过: `checksums.txt` 解析器没兼容
+  GNU coreutils binary 模式的 `*` 前缀 (Windows Git Bash 的 `sha256sum` 默认
+  就是这种格式 `<hash> *<file>`), 导致文件名匹配失败、降级到"跳过校验"。
+- `jvm doctor` 对所有 Windows junction 误报"current 不是链接 (可能是普通目录)":
+  之前用 `os.Lstat` 的 `ModeSymlink` 位判断, 但 Windows junction (reparse point)
+  在 Go 里不设置 `ModeSymlink` (那是给真 symlink 的), 改用 `os.Readlink` 成功与否判断。
+
 ## [0.4.0] - 2026-08-07
 
 ### 新增

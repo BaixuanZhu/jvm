@@ -246,8 +246,13 @@ func fetchExpectedChecksum(rel *githubRelease, filename string) (string, bool) {
 }
 
 // parseChecksum 从 sha256sum 格式文本里找出 filename 对应的 hash。
-// 每行格式: "<hash>  <filename>" (两个空格) 或 "<hash> <filename>"。
-// 纯函数, 便于表驱动测试。
+// GNU coreutils 有两种格式:
+//
+//	"<hash>  <filename>"  text 模式 (两个空格, 无星号)
+//	"<hash> *<filename>"  binary 模式 (一个空格 + 前导星号)
+//
+// Windows Git Bash 自带的 sha256sum 默认走 binary 模式 (输出 *前缀),
+// 故这里要剥掉文件名前导 '*' 再比较。纯函数, 便于表驱动测试。
 func parseChecksum(text, filename string) (string, bool) {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -260,6 +265,7 @@ func parseChecksum(text, filename string) (string, bool) {
 			continue
 		}
 		hash, name := fields[0], fields[1]
+		name = strings.TrimPrefix(name, "*") // 兼容 binary 模式的 *前缀
 		if name == filename {
 			return hash, true
 		}

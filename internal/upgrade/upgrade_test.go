@@ -53,6 +53,16 @@ deadbeef  other-file.txt
 		}
 	})
 
+	// GNU coreutils binary 模式: 文件名带 * 前缀 (Windows Git Bash 的 sha256sum 默认就是这种)
+	// 这是 v0.4.1 修复的核心回归: 之前 * 前缀导致匹配失败, 校验被静默跳过。
+	t.Run("binary 模式 * 前缀", func(t *testing.T) {
+		text := "40ff9cd4a3dd7067f45b03e16bec003454431b5b3a91b4170ae7540c6d889a9a *jvm-windows-amd64.zip\n"
+		hash, ok := parseChecksum(text, "jvm-windows-amd64.zip")
+		if !ok || hash != "40ff9cd4a3dd7067f45b03e16bec003454431b5b3a91b4170ae7540c6d889a9a" {
+			t.Errorf("binary 模式 * 前缀解析失败: hash=%q ok=%v", hash, ok)
+		}
+	})
+
 	// 边界: 空文本
 	t.Run("空文本", func(t *testing.T) {
 		if _, ok := parseChecksum("", "jvm-windows-amd64.zip"); ok {
