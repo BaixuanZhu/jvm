@@ -40,13 +40,17 @@ func Install(arg string) {
 	}
 }
 
-// Use 处理 jvm use <版本号>
+// Use 处理 jvm use <[distro@]版本号>
 func Use(arg string) {
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
 	}
 
-	dir, err := junction.ResolveVersion(arg)
+	spec, err := app.ParseVersionSpec(arg)
+	if err != nil {
+		app.Fail(err.Error())
+	}
+	dir, err := junction.ResolveVersion(spec.Distro, spec.Version)
 	if err != nil {
 		app.Fail(err.Error())
 	}
@@ -104,7 +108,9 @@ func List() {
 		if n == current {
 			mark = "→ "
 		}
-		fmt.Printf("  %s%s\n", mark, n)
+		// 显示名归一化: 旧的无前缀目录 (21.0.12+8) 补上 temurin- 前缀,
+		// 与新装目录 (temurin-21.0.5+11) 显示一致; 实际目录名不变。
+		fmt.Printf("  %s%s\n", mark, junction.DisplayName(n))
 	}
 }
 
@@ -116,20 +122,22 @@ type availableRow struct {
 	lts    bool
 }
 
-// AvailableOptions 是 jvm available 的选项 (由 parseAvailableArgs 解析)。
+// AvailableOptions 是 jvm available 的选项 (由 ParseAvailableArgs 解析)。
 type AvailableOptions struct {
-	All   bool // -a/--all: 列出每个大版本的全部子版本
-	Major int  // -m/--major: 仅列出该大版本的全部子版本 (0 表示未指定)
+	Distro string // 可选: 指定发行版 (空 = 默认 temurin)
+	All    bool   // -a/--all: 列出每个大版本的全部子版本
+	Major  int    // -m/--major: 仅列出该大版本的全部子版本 (0 表示未指定)
 }
 
 // ParseAvailableArgs 解析 jvm available 的命令行参数。
 // 支持:
 //
+//	[distro]                位置参数: 指定发行版 (如 corretto), 空 = 默认 temurin
 //	-a / --all              列出所有大版本的全部子版本
 //	-m <N> / --major <N>    仅列出大版本 N 的全部子版本
 //	--major=<N>             同上 (等号形式)
 //
-// -a 与 --major 互斥。未识别的 flag / 多余位置参数报错。
+// -a 与 --major 互斥。distro 位置参数最多一个, 多余报错。
 // 纯函数, 便于表驱动测试。
 func ParseAvailableArgs(args []string) (AvailableOptions, error) {
 	var opts AvailableOptions
@@ -168,7 +176,11 @@ func ParseAvailableArgs(args []string) (AvailableOptions, error) {
 		case strings.HasPrefix(arg, "-"):
 			return opts, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -m <N> / --major <N>)", arg)
 		default:
-			return opts, fmt.Errorf("未识别的参数: %s (available 不接受位置参数, 用 -a 或 --major <N>)", arg)
+			// 位置参数: 第一个当 distro, 多余报错
+			if opts.Distro != "" {
+				return opts, fmt.Errorf("未识别的参数: %s (available 最多接受一个发行版名位置参数)", arg)
+			}
+			opts.Distro = arg
 		}
 		i++
 	}
@@ -183,21 +195,26 @@ type versionGroup struct {
 	failed   bool // 查询失败时为 true, versions 为空
 }
 
-// Available 处理 jvm available [-a | --major <N>]。
+// Available 处理 jvm available [distro] [-a | --major <N>]。
 // 无 flag 时以表格列出每个大版本的最新 GA; -a/--major 时按大版本分组列出全部子版本。
+// distro 位置参数指定发行版 (空 = 默认 temurin)。
 func Available(opts AvailableOptions) {
+	distro := opts.Distro
+	if distro == "" {
+		distro = provider.Default
+	}
 	if opts.All || opts.Major > 0 {
-		availableGroups(opts)
+		availableGroups(opts, distro)
 		return
 	}
-	availableTable()
+	availableTable(distro)
 }
 
-// availableTable 是默认的表格输出 (每个大版本最新 GA)。走默认 provider (temurin)。
-func availableTable() {
-	p, err := provider.Get(provider.Default)
+// availableTable 是默认的表格输出 (每个大版本最新 GA)。
+func availableTable(distro string) {
+	p, err := provider.Get(distro)
 	if err != nil {
-		app.Fail(err.Error()) // 不应发生 (默认 provider 必已注册)
+		app.Fail(err.Error())
 	}
 	fmt.Printf("🔍 正在查询 %s 可安装的大版本 (并发获取最新版本号)...\n", p.DisplayName())
 	releases, err := p.Available()
@@ -235,13 +252,14 @@ func availableTable() {
 
 	printAvailableTable(rows, p.DisplayName())
 	fmt.Println()
-	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21  或  jvm install 21.0.12")
-	fmt.Println("查看全部子版本: jvm available -a  或  jvm available --major 21")
+	fmt.Printf("安装: jvm install %s@<版本号>  例如: jvm install %s@21  或  jvm install %s@21.0.12\n",
+		p.Name(), p.Name(), p.Name())
+	fmt.Printf("查看全部子版本: jvm available %s -a  或  jvm available %s --major 21\n", p.Name(), p.Name())
 }
 
-// availableGroups 按 -a / --major 分组列出全部子版本。走默认 provider (temurin)。
-func availableGroups(opts AvailableOptions) {
-	p, err := provider.Get(provider.Default)
+// availableGroups 按 -a / --major 分组列出全部子版本。
+func availableGroups(opts AvailableOptions, distro string) {
+	p, err := provider.Get(distro)
 	if err != nil {
 		app.Fail(err.Error())
 	}
@@ -296,7 +314,7 @@ func availableGroups(opts AvailableOptions) {
 
 	printAvailableGroups(groups, p.DisplayName())
 	fmt.Println()
-	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21.0.10+7")
+	fmt.Printf("安装: jvm install %s@<版本号>  例如: jvm install %s@21.0.10+7\n", p.Name(), p.Name())
 }
 
 // sortIntsDesc 原地把切片降序排序 (仅用于一组 major 号, 避免引入 sort 到调用点)。
@@ -495,13 +513,17 @@ func Uninstall(args []string) {
 		}
 	}
 	if versionArg == "" {
-		app.Fail("用法: jvm uninstall <版本号> [-y|--yes]")
+		app.Fail("用法: jvm uninstall <[distro@]版本号> [-y|--yes]")
 	}
 
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
 	}
-	dir, err := junction.ResolveVersion(versionArg)
+	spec, err := app.ParseVersionSpec(versionArg)
+	if err != nil {
+		app.Fail(err.Error())
+	}
+	dir, err := junction.ResolveVersion(spec.Distro, spec.Version)
 	if err != nil {
 		app.Fail(err.Error())
 	}

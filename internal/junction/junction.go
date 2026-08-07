@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"jvm/internal/app"
 	"jvm/internal/paths"
 
 	"golang.org/x/sys/windows"
@@ -150,13 +151,16 @@ func ReadTarget() string {
 
 // ListLocal 扫描 versionsDir, 返回已安装的版本目录名 (降序)。
 // 同时返回 current 当前指向的目录名 (没选则 "")。
+//
+// 返回的是磁盘上的真实目录名 (旧目录无前缀如 "21.0.12+8", 新目录带前缀如
+// "temurin-21.0.5+11")。需要统一显示时用 DisplayName 归一化。
 func ListLocal() (names []string, currentTarget string) {
 	entries, err := os.ReadDir(paths.VersionsDir)
 	if err != nil {
 		return nil, ""
 	}
 	for _, e := range entries {
-		// 只认能解析出大版本号的目录 (目录名采用纯 semver 形式 X.Y.Z+N)
+		// 只认能解析出大版本号的目录 (含 {distro}-{version} 和旧的无前缀形式)
 		if e.IsDir() && majorOf(e.Name()) > 0 {
 			names = append(names, e.Name())
 		}
@@ -172,16 +176,42 @@ func ListLocal() (names []string, currentTarget string) {
 	return names, currentTarget
 }
 
+// DisplayName 把磁盘上的目录名归一化为统一的 {distro}-{version} 显示形式。
+// 旧的无前缀目录 ("21.0.12+8") 补上 temurin- 前缀; 已带前缀的原样返回。
+// 仅用于展示 (list 输出), 不改磁盘数据。
+func DisplayName(dirName string) string {
+	distro, ver := splitDistro(dirName)
+	if ver == "" {
+		return dirName // 无法解析, 原样返回
+	}
+	return distro + "-" + ver
+}
+
 // ResolveVersion 把用户输入解析到实际安装的版本目录名。规则:
-//  1. 纯大版本号 ("8" / "17" / "21"): 取该大版本下语义最新的 build。
+//  1. 纯大版本号 ("8" / "17" / "21"): 取该 distro 该大版本下语义最新的 build。
 //  2. 完整版本号 ("25.0.4+7" / "jdk-25.0.4+7"): 精确匹配, 带不带 jdk- 前缀都行。
 //  3. 少 build 号的 core ("25.0.4"): 前缀匹配该 core 下语义最新的 build。
 //
+// distro 用于先过滤本地目录集合 (只在该发行版的目录里找);
+// 旧的无 distro 前缀目录 (如 "21.0.12+8") 由 splitDistro 视为 temurin,
+// 故 distro=="temurin" 时能命中旧目录, 实现向后兼容。
+//
 // 即两种模糊形式: 给大版本号取该版本最新; 给 core (X.Y.Z) 取该 core 最新 build。
-func ResolveVersion(input string) (string, error) {
+func ResolveVersion(distro, input string) (string, error) {
 	names, _ := ListLocal()
 	if len(names) == 0 {
 		return "", fmt.Errorf("还没有安装任何版本, 请先 jvm install <版本号>")
+	}
+
+	// 先按 distro 过滤: 只保留属于该发行版的目录 (含旧的无前缀目录, 视为 temurin)
+	var cands []string
+	for _, n := range names {
+		if d, _ := splitDistro(n); d == distro {
+			cands = append(cands, n)
+		}
+	}
+	if len(cands) == 0 {
+		return "", fmt.Errorf("没有安装 %s 的任何版本。运行 jvm list 查看已安装版本", distro)
 	}
 
 	input = strings.TrimSpace(input)
@@ -189,25 +219,25 @@ func ResolveVersion(input string) (string, error) {
 		return "", fmt.Errorf("版本号不能为空")
 	}
 
-	// 1. 纯大版本号 → 该大版本下语义最新
+	// 1. 纯大版本号 → 该 distro 该大版本下语义最新
 	if major, ok := pureMajor(input); ok {
-		var cands []string
-		for _, n := range names {
+		var majorCands []string
+		for _, n := range cands {
 			if majorOf(n) == major {
-				cands = append(cands, n)
+				majorCands = append(majorCands, n)
 			}
 		}
-		if len(cands) == 0 {
-			return "", fmt.Errorf("没有安装大版本 %d。运行 jvm list 查看已安装版本", major)
+		if len(majorCands) == 0 {
+			return "", fmt.Errorf("没有安装 %s 大版本 %d。运行 jvm list 查看已安装版本", distro, major)
 		}
-		return latestSemver(cands), nil
+		return latestSemver(majorCands), nil
 	}
 
 	// 2. 精确匹配版本号: 带不带 jdk- 前缀都接受。
 	//    与 install/available 对齐 —— 它们用不带前缀的简短形式 (如 "25.0.4+7"),
-	//    所以 use/uninstall 也能这么写; 直接粘 list 里的全名 (jdk-25.0.4+7) 也行。
+	//    所以 use/uninstall 也能这么写; 直接粘 list 里的全名 (temurin-25.0.4+7) 也行。
 	want := stripPrefix(input)
-	for _, n := range names {
+	for _, n := range cands {
 		if n == input || stripPrefix(n) == want {
 			return n, nil
 		}
@@ -217,18 +247,18 @@ func ResolveVersion(input string) (string, error) {
 	//    让 use 21.0.12 能命中 21.0.12+8, 不必记 build 号。
 	core := versionCore(input)
 	if core != stripPrefix(input) { // 输入含 build 号时已在步骤 2 处理, 这里只管 core
-		return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本", input)
+		return "", fmt.Errorf("没有找到 %s 版本 '%s'。运行 jvm list 查看已安装版本", distro, input)
 	}
-	var cands []string
-	for _, n := range names {
+	var coreCands []string
+	for _, n := range cands {
 		if versionCore(n) == core {
-			cands = append(cands, n)
+			coreCands = append(coreCands, n)
 		}
 	}
-	if len(cands) > 0 {
-		return latestSemver(cands), nil
+	if len(coreCands) > 0 {
+		return latestSemver(coreCands), nil
 	}
-	return "", fmt.Errorf("没有找到版本 '%s'。运行 jvm list 查看已安装版本 (可用大版本号取最新, 或完整版本号如 25.0.4+7)", input)
+	return "", fmt.Errorf("没有找到 %s 版本 '%s'。运行 jvm list 查看已安装版本 (可用大版本号取最新, 或完整版本号)", distro, input)
 }
 
 // latestSemver 从一组版本目录名里返回语义最新的那个。
@@ -368,26 +398,67 @@ func MigrateLegacyDirs() error {
 	return nil
 }
 
-// majorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。
-// 目录名采用纯 semver 形式 ("21.0.12+8" → 21); 同时容错带 jdk- / jdk 前缀
-// 的历史输入 (迁移期的用户手输 / 残留旧目录)。
+// splitDistro 把本地版本目录名拆成 (distro, version)。
+// 目录命名格式: {distro}-{version}, 如 "temurin-21.0.5+11" → ("temurin", "21.0.5+11")。
+//
+// 规则:
+//   - 形如 "{字母前缀}-{数字开头...}" → 拆出前缀作 distro, 剩余作 version。
+//   - 无 distro 前缀 (旧目录 "21.0.12+8" / "jdk-21.0.12+8" / 纯版本号输入) →
+//     distro 返回 app.DefaultDistro ("temurin"), version 返回原串。
+//
+// 注意: 只在第一个 "-" 处拆, 且要求 "-" 后紧跟数字 (否则视为无前缀)。
+// 这样 "jdk-21.0.12+8" 的 "jdk" 不会被当成 distro ("jdk" 不是合法发行版,
+// 且其 "-" 后是 "21" 数字, 会被拆成 ("jdk", "21.0.12+8") —— 但调用方按
+// app.DefaultDistro 兜底, 不影响)。
 //
 // 纯函数, 便于表驱动测试。
+func splitDistro(name string) (distro, version string) {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return app.DefaultDistro, ""
+	}
+	// 找第一个 "-"
+	dash := strings.IndexByte(s, '-')
+	if dash <= 0 {
+		// 无 "-" 或以 "-" 开头: 无 distro 前缀
+		return app.DefaultDistro, s
+	}
+	prefix := s[:dash]
+	rest := s[dash+1:]
+	// 前缀必须全是字母 (distro 名约定: temurin/corretto/microsoft), 且 rest 非空
+	if prefix == "" || rest == "" {
+		return app.DefaultDistro, s
+	}
+	for _, r := range prefix {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			return app.DefaultDistro, s // 前缀含非字母, 视为无 distro
+		}
+	}
+	return prefix, rest
+}
+
+// majorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。
+// 目录名采用 {distro}-{version} 形式 ("temurin-21.0.12+8" → 21); 同时容错
+// 旧的无前缀目录 ("21.0.12+8" → 21, 启动时视为 temurin) 和带 jdk- / jdk
+// 前缀的历史输入 (迁移期的用户手输 / 残留旧目录)。
+//
+// 先用 splitDistro 剥掉 distro 前缀 (若有), 再取开头连续数字。
+// 纯函数, 便于表驱动测试。
 func majorOf(s string) int {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "jdk-")
-	s = strings.TrimPrefix(s, "jdk")
-	s = strings.TrimPrefix(s, "JDK-")
-	s = strings.TrimPrefix(s, "JDK")
+	_, ver := splitDistro(strings.TrimSpace(s))
+	ver = strings.TrimPrefix(ver, "jdk-")
+	ver = strings.TrimPrefix(ver, "jdk")
+	ver = strings.TrimPrefix(ver, "JDK-")
+	ver = strings.TrimPrefix(ver, "JDK")
 	// 取开头连续数字作为大版本号
-	end := strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' })
+	end := strings.IndexFunc(ver, func(r rune) bool { return r < '0' || r > '9' })
 	if end < 0 {
-		end = len(s)
+		end = len(ver)
 	}
 	if end == 0 {
 		return 0
 	}
-	n, err := strconv.Atoi(s[:end])
+	n, err := strconv.Atoi(ver[:end])
 	if err != nil || n <= 0 {
 		return 0
 	}
@@ -413,10 +484,11 @@ func pureMajor(s string) (int, bool) {
 	return n, true
 }
 
-// stripPrefix 去掉版本串开头的 jdk- / jdk / JDK- / JDK 前缀, 便于精确比较。
-// 让 "25.0.4+7" 和 "jdk-25.0.4+7" 互相匹配。纯函数, 便于测试。
+// stripPrefix 去掉版本串开头的 distro- / jdk- / jdk / JDK- / JDK 前缀,
+// 便于精确比较。让 "21.0.12+8" 能同时匹配 "temurin-21.0.12+8" 和
+// "jdk-21.0.12+8"。纯函数, 便于测试。
 func stripPrefix(s string) string {
-	s = strings.TrimSpace(s)
+	_, s = splitDistro(strings.TrimSpace(s))
 	s = strings.TrimPrefix(s, "jdk-")
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")
@@ -425,9 +497,10 @@ func stripPrefix(s string) string {
 }
 
 // versionCore 返回版本串的 core 部分 (去掉前缀和 build 号)。
-// "21.0.12+8"     → "21.0.12"
-// "jdk-21.0.12+8" → "21.0.12"
-// "21.0.12"       → "21.0.12"
+// "21.0.12+8"            → "21.0.12"
+// "temurin-21.0.12+8"    → "21.0.12"
+// "jdk-21.0.12+8"        → "21.0.12"
+// "21.0.12"              → "21.0.12"
 // 用于少 build 号的前缀匹配 (如 use 21.0.12 命中 21.0.12+8)。
 // 纯函数, 便于表驱动测试。
 func versionCore(s string) string {
@@ -439,19 +512,20 @@ func versionCore(s string) string {
 }
 
 // versionParts 把版本目录名解析成数字段切片, 用于语义版本比较。
-// 目录名采用纯 semver 形式 "21.0.12+8" → [21, 0, 12, 8];
-// 同时容错带 jdk- / jdk 前缀的历史输入。
+// 目录名采用 {distro}-{version} 形式 "temurin-21.0.12+8" → [21, 0, 12, 8];
+// 同时容错旧的无前缀目录 ("21.0.12+8") 和带 jdk- / jdk 前缀的历史输入。
 //
+// 先用 splitDistro 剥掉 distro 前缀 (否则 distro 字母段会被 Atoi 成 0, 破坏比较)。
 // 纯函数, 便于表驱动测试。
 func versionParts(s string) []int {
-	s = strings.TrimSpace(s)
+	_, s = splitDistro(strings.TrimSpace(s))
 	s = strings.TrimPrefix(s, "jdk-")
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")
 	s = strings.TrimPrefix(s, "JDK")
 	var parts []int
 	for _, seg := range strings.FieldsFunc(s, func(r rune) bool {
-		return r < '0' || r > '9' // 用 "非数字" 作分隔符: . + - 都会拆开
+		return r < '0' || r > '9' // 用 "非数字" 作分隔符: . + 都会拆开
 	}) {
 		if seg == "" {
 			continue

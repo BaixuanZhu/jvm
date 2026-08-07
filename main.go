@@ -52,12 +52,12 @@ func main() {
 	switch command {
 	case "install":
 		if len(args) < 1 {
-			app.Fail("用法: jvm install <版本号>  例如: jvm install 21  或  jvm install 21.0.12")
+			app.Fail("用法: jvm install <[distro@]版本号>  例如: jvm install 21  或  jvm install corretto@21")
 		}
 		cmd.Install(args[0])
 	case "use":
 		if len(args) < 1 {
-			app.Fail("用法: jvm use <版本号>  例如: jvm use 21")
+			app.Fail("用法: jvm use <[distro@]版本号>  例如: jvm use 21  或  jvm use corretto@21")
 		}
 		cmd.Use(args[0])
 	case "list", "ls":
@@ -91,27 +91,35 @@ func main() {
 
 // usage 打印帮助信息
 func usage() {
-	fmt.Print(`jvm - Windows 上的 Java 版本管理器 (Temurin/Adoptium)
+	fmt.Print(`jvm - Windows 上的 Java 版本管理器
 
 用法:
   jvm <命令> [参数]
 
+版本号格式: [distro@]version
+  21              默认发行版 (temurin) 的 JDK 21 最新版
+  corretto@21     指定发行版 corretto 的 JDK 21
+  temurin@21.0.12 指定发行版 + 精确版本
+  (省略 distro@ 前缀时默认 temurin)
+
 命令:
-  install <版本>     安装 JDK (例如: jvm install 21  或  jvm install 21.0.12)
-  use <版本>         切换到指定版本 (支持模糊匹配, 例如: jvm use 21)
-  list               列出本地已安装的版本
-  available [-a|--major <N>]  列出可安装版本 (-a 全部子版本, --major 指定大版本)
-  uninstall <版本>   卸载指定版本 (默认需确认, 加 -y 跳过)
-  current            显示当前正在使用的版本
-  doctor             诊断环境配置 (目录/junction/PATH/JAVA_HOME/shell 集成)
-  init <shell>       打印/安装 shell 集成脚本 (通常自动完成, 无需手动)
-  upgrade            检查并更新 jvm 自身 (通过 GitHub Release)
-  version            显示 jvm 版本号
-  help               显示此帮助信息
+  install <[distro@]版本>  安装 JDK (例如: jvm install 21  或  jvm install corretto@21)
+  use <[distro@]版本>      切换到指定版本 (支持模糊匹配, 例如: jvm use 21)
+  list                     列出本地已安装的版本
+  available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
+  uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)
+  current                  显示当前正在使用的版本
+  doctor                   诊断环境配置 (目录/junction/PATH/JAVA_HOME/shell 集成)
+  init <shell>             打印/安装 shell 集成脚本 (通常自动完成, 无需手动)
+  upgrade                  检查并更新 jvm 自身 (通过 GitHub Release)
+  version                  显示 jvm 版本号
+  help                     显示此帮助信息
 
 示例:
-  jvm install 21      # 安装 JDK 21 的最新 GA 版
-  jvm use 21          # 切换到 21
+  jvm install 21            # 安装 temurin JDK 21 的最新 GA 版
+  jvm use 21                # 切换到 21
+  jvm install corretto@21   # 安装 corretto JDK 21
+  jvm available corretto    # 查看 corretto 可安装版本
 
 切换原理:
   使用 Windows junction (目录联接), PATH 永远指向 ~/.jvm/current/bin,
