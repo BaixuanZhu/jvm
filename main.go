@@ -14,12 +14,12 @@ import (
 	"os"
 
 	"jvm/cmd"
-	"jvm/internal/adoptium"
 	"jvm/internal/app"
 	"jvm/internal/config"
 	"jvm/internal/doctor"
 	"jvm/internal/env"
 	"jvm/internal/junction"
+	"jvm/internal/provider/temurin"
 	"jvm/internal/shell"
 	"jvm/internal/upgrade"
 )
@@ -28,7 +28,7 @@ func main() {
 	// 加载用户配置 (~/.jvm/config.toml 或环境变量), 配置镜像源和架构。
 	// 必须在任何网络请求前完成, 故置于自举链路最前面。
 	cfg := config.Load()
-	adoptium.Configure(cfg.Arch, cfg.Mirror)
+	temurin.Configure(cfg.Arch, cfg.Mirror)
 
 	// 静默自举: 把 jvm 自身目录加入 PATH + 安装 shell 集成 (首次运行, 幂等)
 	// 这样用户无需任何手动配置, 重开终端后 jvm use 即在当前终端即时生效

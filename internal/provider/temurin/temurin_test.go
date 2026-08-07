@@ -1,8 +1,11 @@
-package adoptium
+package temurin
 
 import "testing"
 
+// TestShortSemver 验证 Temurin semver 规整 (剥离 ".LTS" 后缀等)。
+// ShortSemver 现在是 temurin 结构体方法 (实现 provider.Provider 接口)。
 func TestShortSemver(t *testing.T) {
+	p := temurin{}
 	tests := []struct {
 		in, want string
 	}{
@@ -16,7 +19,7 @@ func TestShortSemver(t *testing.T) {
 		{"", ""},                   // 空串
 	}
 	for _, tt := range tests {
-		if got := ShortSemver(tt.in); got != tt.want {
+		if got := p.ShortSemver(tt.in); got != tt.want {
 			t.Errorf("ShortSemver(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
@@ -71,13 +74,15 @@ func TestMirrorDownloadURLWithArch(t *testing.T) {
 	}
 }
 
-// TestPageSize 验证分页上限常量合理 (Adoptium 单次最多 50 条)。
-// 调用方据此判断 FetchAllAssets 结果是否可能被截断。
-func TestPageSize(t *testing.T) {
-	if PageSize <= 0 {
-		t.Errorf("PageSize 应为正数, got %d", PageSize)
+// (PageSize 测试已移除: PageSize 方法被砍, ListVersions 改为内部循环翻页拉全量)
+
+// TestNameAndDisplayName 验证核心标识方法。
+func TestNameAndDisplayName(t *testing.T) {
+	p := temurin{}
+	if p.Name() != "temurin" {
+		t.Errorf("Name() = %q, want %q", p.Name(), "temurin")
 	}
-	if PageSize != 50 {
-		t.Errorf("PageSize 当前约定为 50 (与 Adoptium API 默认一致), got %d", PageSize)
+	if p.DisplayName() != "Temurin (Adoptium)" {
+		t.Errorf("DisplayName() = %q, want %q", p.DisplayName(), "Temurin (Adoptium)")
 	}
 }

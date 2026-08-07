@@ -1,6 +1,6 @@
 // Package cmd 实现各子命令的业务逻辑 (install/use/list/available/uninstall/current)。
 //
-// 这是命令编排层: 解析参数, 调用 paths/adoptium/jdk/junction/env 完成具体工作,
+// 这是命令编排层: 解析参数, 调用 paths/provider/jdk/junction/env 完成具体工作,
 // 输出结果给用户。不含命令路由 (路由在 main 包)。
 package cmd
 
@@ -16,18 +16,26 @@ import (
 	"sync"
 	"time"
 
-	"jvm/internal/adoptium"
 	"jvm/internal/app"
 	"jvm/internal/env"
 	"jvm/internal/jdk"
 	"jvm/internal/junction"
 	"jvm/internal/paths"
+	"jvm/internal/provider"
 )
 
 // Install 处理 jvm install <版本号>
-// 版本号支持: 21 (大版本最新) / 21.0.12 (精确小版本) / jdk-21.0.12+8 (完整名)
+// 版本号支持: 21 / 21.0.12 / jdk-21.0.12+8 / corretto@21 / microsoft@21.0.12
 func Install(arg string) {
-	if err := jdk.Install(arg); err != nil {
+	spec, err := app.ParseVersionSpec(arg)
+	if err != nil {
+		app.Fail(err.Error())
+	}
+	p, err := provider.Get(spec.Distro)
+	if err != nil {
+		app.Fail(err.Error())
+	}
+	if err := jdk.InstallVersion(p, spec); err != nil {
 		app.Fail(err.Error())
 	}
 }
@@ -167,13 +175,12 @@ func ParseAvailableArgs(args []string) (AvailableOptions, error) {
 	return opts, nil
 }
 
-// versionGroup 是分组输出里一个大版本的全部子版本 (已 ShortSemver 规整, 降序)。
+// versionGroup 是分组输出里一个大版本的全部子版本 (已规整, 降序)。
 type versionGroup struct {
-	major     int
-	lts       bool
-	versions  []string
-	failed    bool // 查询失败时为 true, versions 为空
-	truncated bool // 子版本数达 PageSize 上限, 可能被截断
+	major    int
+	lts      bool
+	versions []string
+	failed   bool // 查询失败时为 true, versions 为空
 }
 
 // Available 处理 jvm available [-a | --major <N>]。
@@ -186,10 +193,14 @@ func Available(opts AvailableOptions) {
 	availableTable()
 }
 
-// availableTable 是默认的表格输出 (每个大版本最新 GA)。
+// availableTable 是默认的表格输出 (每个大版本最新 GA)。走默认 provider (temurin)。
 func availableTable() {
-	fmt.Println("🔍 正在查询可安装的大版本 (并发获取最新版本号)...")
-	releases, err := adoptium.FetchAvailableReleases()
+	p, err := provider.Get(provider.Default)
+	if err != nil {
+		app.Fail(err.Error()) // 不应发生 (默认 provider 必已注册)
+	}
+	fmt.Printf("🔍 正在查询 %s 可安装的大版本 (并发获取最新版本号)...\n", p.DisplayName())
+	releases, err := p.Available()
 	if err != nil {
 		app.Fail("查询失败: " + err.Error())
 	}
@@ -203,11 +214,12 @@ func availableTable() {
 	var wg sync.WaitGroup
 	for i, r := range releases {
 		wg.Add(1)
-		go func(i int, r adoptium.AvailableRelease) {
+		go func(i int, r app.Release) {
 			defer wg.Done()
 			row := availableRow{major: r.Major, lts: r.LTS}
-			if asset, err := adoptium.FetchLatestAsset(r.Major); err == nil {
-				row.latest = adoptium.ShortSemver(asset.Semver)
+			// LatestPatch 只取该 major 最新一条, 比 Resolve 轻量 (不解析用户输入/不内化 CDN)
+			if asset, e := p.LatestPatch(r.Major); e == nil {
+				row.latest = asset.ReleaseName
 			} else {
 				row.failed = true
 			}
@@ -221,18 +233,22 @@ func availableTable() {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
 
-	printAvailableTable(rows)
+	printAvailableTable(rows, p.DisplayName())
 	fmt.Println()
 	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21  或  jvm install 21.0.12")
 	fmt.Println("查看全部子版本: jvm available -a  或  jvm available --major 21")
 }
 
-// availableGroups 按 -a / --major 分组列出全部子版本。
+// availableGroups 按 -a / --major 分组列出全部子版本。走默认 provider (temurin)。
 func availableGroups(opts AvailableOptions) {
-	fmt.Println("🔍 正在查询可安装的子版本 (可能稍慢)...")
+	p, err := provider.Get(provider.Default)
+	if err != nil {
+		app.Fail(err.Error())
+	}
+	fmt.Printf("🔍 正在查询 %s 可安装的子版本 (可能稍慢)...\n", p.DisplayName())
 
 	// 取大版本列表 + LTS 标记 (单次 API; --major 场景也用它拿 LTS 标记)
-	releases, err := adoptium.FetchAvailableReleases()
+	releases, err := p.Available()
 	if err != nil {
 		app.Fail("查询可用大版本失败: " + err.Error())
 	}
@@ -257,7 +273,7 @@ func availableGroups(opts AvailableOptions) {
 	// 降序 (新版本在前)
 	sortIntsDesc(majors)
 
-	// 并发取每个大版本的全部子版本
+	// 并发取每个大版本的全部子版本 (provider 自己负责拉全量, 不再有截断提示)
 	groups := make([]versionGroup, len(majors))
 	var wg sync.WaitGroup
 	for i, m := range majors {
@@ -265,14 +281,10 @@ func availableGroups(opts AvailableOptions) {
 		go func(i, m int) {
 			defer wg.Done()
 			g := versionGroup{major: m, lts: ltsOf[m]}
-			if assets, err := adoptium.FetchAllAssets(m); err == nil {
+			if assets, e := p.ListVersions(m); e == nil {
 				g.versions = make([]string, 0, len(assets))
 				for _, a := range assets {
-					g.versions = append(g.versions, adoptium.ShortSemver(a.Semver))
-				}
-				// 子版本数达上限, 可能被截断
-				if len(assets) >= adoptium.PageSize {
-					g.truncated = true
+					g.versions = append(g.versions, a.ReleaseName)
 				}
 			} else {
 				g.failed = true
@@ -282,20 +294,7 @@ func availableGroups(opts AvailableOptions) {
 	}
 	wg.Wait()
 
-	printAvailableGroups(groups)
-
-	// 若有任何大版本可能被截断, 提示用户
-	anyTruncated := false
-	for _, g := range groups {
-		if g.truncated {
-			anyTruncated = true
-			break
-		}
-	}
-	if anyTruncated {
-		fmt.Println()
-		fmt.Printf("⚠️  部分大版本的子版本可能超过 %d 条未完整显示, 可用 jvm available --major <N> 单独查看。\n", adoptium.PageSize)
-	}
+	printAvailableGroups(groups, p.DisplayName())
 	fmt.Println()
 	fmt.Println("安装: jvm install <版本号>  例如: jvm install 21.0.10+7")
 }
@@ -306,8 +305,8 @@ func sortIntsDesc(a []int) {
 }
 
 // printAvailableGroups 按大版本分组打印全部子版本, 每组最新版标记 ← 最新。
-func printAvailableGroups(groups []versionGroup) {
-	fmt.Println("可安装的大版本 (Temurin/Adoptium):")
+func printAvailableGroups(groups []versionGroup, displayName string) {
+	fmt.Printf("可安装的大版本 (%s):\n", displayName)
 	fmt.Println()
 	for _, g := range groups {
 		header := fmt.Sprintf("JDK %d", g.major)
@@ -339,7 +338,7 @@ func printAvailableGroups(groups []versionGroup) {
 
 // printAvailableTable 以对齐的 ASCII 表格形式打印可安装版本。
 // 列宽按显示宽度 (runeWidth) 计算, 这样中文表头与 ASCII 版本号能正确对齐。
-func printAvailableTable(rows []availableRow) {
+func printAvailableTable(rows []availableRow, displayName string) {
 	// 三列的表头标题
 	const (
 		majorTitle  = "大版本"
@@ -381,7 +380,7 @@ func printAvailableTable(rows []availableRow) {
 	borderMid := border("+", "+", "+")
 	borderBot := border("+", "+", "+")
 
-	fmt.Println("可安装的大版本 (Temurin/Adoptium):")
+	fmt.Printf("可安装的大版本 (%s):\n", displayName)
 	fmt.Println()
 	fmt.Println(borderTop)
 	// 表头行: 大版本 (靠右) | 最新版本 (靠左) | 类型 (居中)
