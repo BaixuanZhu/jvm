@@ -17,7 +17,6 @@ package microsoft
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -38,9 +37,6 @@ const (
 
 	// distroName 是发行版标识, 用作目录命名前缀和 CLI 的 distro@ 前缀
 	distroName = "microsoft"
-
-	// cdnHost 是有效版本的最终 CDN 主机; aka.ms 对不存在的短链跳 bing.com
-	cdnHost = "download.visualstudio.microsoft.com"
 )
 
 // ltsReleases 是 Microsoft Build of OpenJDK 支持的 LTS 大版本。
@@ -137,8 +133,7 @@ func (m microsoft) probe(input string, major int) (*app.Asset, error) {
 	// 第二步: 拉取 SHA256 旁路文件
 	sha256, err := fetchSHA256(fullVersion)
 	if err != nil {
-		// SHA256 拉取失败不阻断下载 (罕见情况), 只打警告到 stderr
-		// 但这里选择返回错误以保证完整性校验能进行 (与 jdk 包的强校验语义一致)
+		// SHA256 拉取失败阻断安装: jdk 包的完整性校验依赖它, 缺失等于无校验。
 		return nil, err
 	}
 
@@ -193,8 +188,9 @@ func resolveRedirect(version string) (finalURL, fullVersion string, err error) {
 		}
 		return "", "", fmt.Errorf("探测 Microsoft 版本失败: %w", err)
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body) // 丢弃 body (HEAD 不可靠, 用 GET 但不存内容)
+	// 只需要 resp.Request.URL (最终重定向地址), 立即关闭 body 不下载 zip 内容。
+	// 用 GET 而非 HEAD: aka.ms 对 HEAD 的行为不稳定, GET 跟随重定向最可靠。
+	resp.Body.Close()
 
 	// 从最终 URL 解析完整版本号
 	finalURL = resp.Request.URL.String()
@@ -255,4 +251,4 @@ func isSupportedLTS(major int) bool {
 
 // errVersionNotFound 是 CheckRedirect 内部用的哨兵错误,
 // 表示 aka.ms 把短链跳到了 bing.com (即版本不存在)。
-var errVersionNotFound = fmt.Errorf("version not found (redirected to bing.com)")
+var errVersionNotFound = errors.New("version not found (redirected to bing.com)")

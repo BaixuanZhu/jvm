@@ -253,8 +253,8 @@ func availableTable(distro string) {
 
 	printAvailableTable(rows, p.DisplayName())
 	fmt.Println()
-	fmt.Printf("安装: jvm install %s@<版本号>  例如: jvm install %s@21  或  jvm install %s@21.0.12+8\n",
-		p.Name(), p.Name(), p.Name())
+	fmt.Printf("安装: jvm install %s@<大版本>      例如: jvm install %s@21\n", p.Name(), p.Name())
+	fmt.Printf("      jvm install %s@<完整版本号>  (从上表复制, 格式因发行版而异)\n", p.Name())
 	fmt.Printf("查看全部子版本: jvm available %s -a  或  jvm available %s --major 21\n", p.Name(), p.Name())
 }
 
@@ -315,7 +315,7 @@ func availableGroups(opts AvailableOptions, distro string) {
 
 	printAvailableGroups(groups, p.DisplayName())
 	fmt.Println()
-	fmt.Printf("安装: jvm install %s@<版本号>  例如: jvm install %s@21.0.10+7\n", p.Name(), p.Name())
+	fmt.Printf("安装: jvm install %s@<版本号>  (从上方列表复制完整版本号)\n", p.Name())
 }
 
 // sortIntsDesc 原地把切片降序排序 (仅用于一组 major 号, 避免引入 sort 到调用点)。

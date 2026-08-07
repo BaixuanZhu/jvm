@@ -1,4 +1,5 @@
-// Command jvm 是 Windows 上的 Java 版本管理器 (类似 nvm-windows, 仅 Temurin/Adoptium)。
+// Command jvm 是 Windows 上的 Java 版本管理器 (类似 nvm-windows / jabba)。
+// 支持 Temurin / Corretto / Microsoft Build of OpenJDK 等发行版。
 //
 // 用法:
 //
@@ -98,11 +99,15 @@ func usage() {
 用法:
   jvm <命令> [参数]
 
-版本号格式: [distro@]version
-  21               默认发行版 (temurin) 的 JDK 21 最新版
-  corretto@21      指定发行版 corretto 的 JDK 21
-  temurin@21.0.5+11 指定发行版 + 完整版本号 (含 build 号)
-  (省略 distro@ 前缀时默认 temurin; 大版本号取最新, 完整版本号精确匹配)
+发行版与版本号: [distro@]version
+  省略 distro@ 默认 temurin。支持: temurin / corretto / microsoft
+  版本号两种形式: 大版本号 (如 21) 取最新; 完整版本号精确匹配 (格式因发行版而异,
+  运行 jvm available <distro> 查看实际格式)。
+  示例:
+    21                  temurin JDK 21 最新版
+    corretto@21         corretto JDK 21 最新版
+    microsoft@21        microsoft JDK 21 最新版
+    corretto@21.0.12.8.1  corretto 指定版本 (完整版本号)
 
 命令:
   install <[distro@]版本>  安装 JDK (例如: jvm install 21  或  jvm install corretto@21)
@@ -118,10 +123,11 @@ func usage() {
   help                     显示此帮助信息
 
 示例:
-  jvm install 21            # 安装 temurin JDK 21 的最新 GA 版
-  jvm use 21                # 切换到 21
-  jvm install corretto@21   # 安装 corretto JDK 21
-  jvm available corretto    # 查看 corretto 可安装版本
+  jvm install 21              # 安装 temurin JDK 21 最新版
+  jvm use 21                  # 切换到 21
+  jvm install corretto@21     # 安装 corretto JDK 21
+  jvm install microsoft@21    # 安装 microsoft JDK 21
+  jvm available corretto      # 查看 corretto 可安装版本
 
 切换原理:
   使用 Windows junction (目录联接), PATH 永远指向 ~/.jvm/current/bin,

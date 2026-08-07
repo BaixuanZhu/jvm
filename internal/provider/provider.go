@@ -76,13 +76,6 @@ func (Base) ShortSemver(semver string) string { return semver }
 // 不接受半截版本号 (无 build 号), 由上层 Resolve 引导用大版本号取最新。
 func (Base) ResolveReleaseName(version string) (string, error) { return version, nil }
 
-// CDNResolver 是可选能力接口: 解析官方 CDN 直链 (提速)。
-// 仅 Temurin 实现 (Adoptium 的 /binary/latest 重定向端点)。
-// 上层按需类型断言: if r, ok := p.(CDNResolver); ok { ... }
-type CDNResolver interface {
-	ResolveCDNURL(major int) (string, error)
-}
-
 // Default 是无 distro@ 前缀时的默认发行版名。
 const Default = app.DefaultDistro
 

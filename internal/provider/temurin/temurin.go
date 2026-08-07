@@ -164,7 +164,7 @@ func (t temurin) Resolve(spec app.VersionSpec) (*app.Asset, error) {
 //
 // 端点: /v3/binary/latest/{major}/ga/windows/{arch}/jdk/hotspot/normal/eclipse
 //
-// 实现 provider.CDNResolver 可选接口。
+// 仅在 Resolve 的"大版本取最新"场景内部调用 (提速), 非接口方法。
 func (temurin) ResolveCDNURL(major int) (string, error) {
 	endpoint := fmt.Sprintf(
 		"%s/binary/latest/%d/ga/windows/%s/jdk/hotspot/normal/eclipse",
