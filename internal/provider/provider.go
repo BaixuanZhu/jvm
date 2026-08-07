@@ -70,9 +70,10 @@ type Base struct{}
 // 以剥离 ".LTS" 后缀。
 func (Base) ShortSemver(semver string) string { return semver }
 
-// ResolveReleaseName 把用户输入解析成完整 release_name。
-// 默认透传 (Corretto/Microsoft 版本号无 build 号解析需求); Temurin override
-// 以从 "21.0.12" 解析出 "jdk-21.0.12+8"。
+// ResolveReleaseName 把用户输入的完整版本号标准化成各发行版的 release 标识。
+// 默认透传 (Corretto/Microsoft 版本号即标识); Temurin override 以补 "jdk-" 前缀
+// (把 "21.0.12+8" 标准化成 Adoptium release_name "jdk-21.0.12+8")。
+// 不接受半截版本号 (无 build 号), 由上层 Resolve 引导用大版本号取最新。
 func (Base) ResolveReleaseName(version string) (string, error) { return version, nil }
 
 // CDNResolver 是可选能力接口: 解析官方 CDN 直链 (提速)。

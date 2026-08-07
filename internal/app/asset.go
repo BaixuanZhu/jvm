@@ -52,7 +52,7 @@ type VersionSpec struct {
 	// 无 distro@ 前缀时由 ParseVersionSpec 填默认值。
 	Distro string
 
-	// Version 是原始版本串, 如 "21" / "21.0.12" / "jdk-21.0.12+8"。
+	// Version 是原始版本串, 如 "21" (大版本) / "21.0.12+8" (完整版本, 含 build 号)。
 	// 由各 provider 自己解析 (ResolveReleaseName), 不在此预处理。
 	Version string
 }
@@ -64,10 +64,10 @@ const DefaultDistro = "temurin"
 // ParseVersionSpec 把用户输入解析为 VersionSpec。
 //
 // 输入格式: "[distro@]version", 例如:
-//   - "21"                → {Distro: "temurin", Version: "21"}
-//   - "21.0.12"           → {Distro: "temurin", Version: "21.0.12"}
-//   - "corretto@21"       → {Distro: "corretto", Version: "21"}
-//   - "microsoft@21.0.12" → {Distro: "microsoft", Version: "21.0.12"}
+//   - "21"                  → {Distro: "temurin", Version: "21"}
+//   - "21.0.12+8"           → {Distro: "temurin", Version: "21.0.12+8"}
+//   - "corretto@21"         → {Distro: "corretto", Version: "21"}
+//   - "microsoft@21.0.12+8" → {Distro: "microsoft", Version: "21.0.12+8"}
 //
 // 无 @ 前缀时 Distro 取 DefaultDistro。空输入报错。
 // 不校验 distro 是否已注册 (那是 provider.Get 的职责), 也不校验版本号格式

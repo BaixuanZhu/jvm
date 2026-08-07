@@ -267,72 +267,27 @@ func (temurin) ShortSemver(semver string) string {
 	return core
 }
 
-// ResolveReleaseName 把用户输入 (如 "21.0.12") 解析成完整 release_name
-// (如 "jdk-21.0.12+8")。用户通常不知道 build 号, 所以先列出该 major 的
-// 所有 GA release, 找匹配的最新 build。
+// ResolveReleaseName 把用户输入的完整版本号标准化成 Adoptium release_name。
+// 砍掉半截 core 匹配后, 用户输完整版本号 (含 build 号) 或纯大版本号两种形式:
+//   - "jdk-21.0.12+8" → 透传 (已是完整 release_name)
+//   - "21.0.12+8"     → 补 "jdk-" 前缀
 //
-// 输入支持: "21.0.12" / "21.0.12+8" / "jdk-21.0.12+8"
-// override Base 默认 (透传), 因为 Temurin 版本号有 build 号需从 API 反查。
+// 无 build 号的半截形式 (如 "21.0.12") 报错 —— 不同发行版本号格式不一
+// (Temurin 21.0.5+11 / Corretto 21.0.12.8.1), 半截形式语义模糊; 要装指定
+// patch 就输完整版本号, 或用大版本号取最新。
+//
+// override Base 默认 (透传): Temurin release_name 带 "jdk-" 前缀需补上。
+// 不再查 API 反推 build —— install 精确版本路径因此少一次网络请求。
 func (t temurin) ResolveReleaseName(version string) (string, error) {
 	v := strings.TrimSpace(version)
 	if strings.HasPrefix(v, "jdk-") {
-		return v, nil // 已经是完整 release_name
+		return v, nil // 已是完整 release_name
 	}
-
-	// 解析出 major
-	majorStr := v
-	if i := strings.IndexAny(v, ".+"); i >= 0 {
-		majorStr = v[:i]
+	// 完整版本号必须含 build 号 (X.Y.Z+N)
+	if !strings.Contains(v, "+") {
+		return "", fmt.Errorf("版本号 %q 缺少 build 号。用大版本号 (如 21) 取最新, 或完整版本号 (如 21.0.12+8)", v)
 	}
-	major, err := app.ParseMajorVersion(majorStr)
-	if err != nil {
-		return "", err
-	}
-
-	u := fmt.Sprintf(
-		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse",
-		apiBase, major, arch,
-	)
-	body, err := httpGetJSON(u)
-	if err != nil {
-		return "", fmt.Errorf("查询大版本 %d 的 release 列表失败: %w", major, err)
-	}
-	var releases releaseResponse
-	if err := json.Unmarshal(body, &releases); err != nil {
-		return "", fmt.Errorf("解析 release 列表失败: %w", err)
-	}
-
-	// 要匹配的 "minor.security" (去掉 major 和 build)
-	wantSuffix := ""
-	if i := strings.IndexByte(v, '.'); i >= 0 {
-		wantSuffix = v[i:] // ".0.12" 或 ".0.12+8"
-		if plus := strings.IndexByte(wantSuffix, '+'); plus >= 0 {
-			wantSuffix = wantSuffix[:plus]
-		}
-	}
-
-	for _, r := range releases {
-		semver := r.VersionData.Semver // "21.0.12+8.0.LTS"
-		core := semver
-		if plus := strings.IndexByte(core, '+'); plus >= 0 {
-			core = core[:plus]
-		}
-		coreSuffix := ""
-		if i := strings.IndexByte(core, '.'); i >= 0 {
-			coreSuffix = core[i:]
-		}
-		if coreSuffix == wantSuffix {
-			build := ""
-			if plus := strings.IndexByte(semver, '+'); plus >= 0 {
-				rest := semver[plus+1:] // "8.0.LTS"
-				if dot := strings.IndexByte(rest, '.'); dot >= 0 {
-					build = rest[:dot]
-				}
-			}
-			return fmt.Sprintf("jdk-%s+%s", core, build), nil
-		}
-	}
-	return "", fmt.Errorf("没有找到匹配 %s 的 release", version)
+	return "jdk-" + v, nil
 }
 
 // MirrorDownloadURL 把官方 GitHub 下载链接转成清华镜像链接。

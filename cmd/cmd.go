@@ -25,7 +25,7 @@ import (
 )
 
 // Install 处理 jvm install <版本号>
-// 版本号支持: 21 / 21.0.12 / jdk-21.0.12+8 / corretto@21 / microsoft@21.0.12
+// 版本号支持: 21 (大版本取最新) / 21.0.12+8 (完整版本精确) / corretto@21 (指定发行版)
 func Install(arg string) {
 	spec, err := app.ParseVersionSpec(arg)
 	if err != nil {
@@ -253,7 +253,7 @@ func availableTable(distro string) {
 
 	printAvailableTable(rows, p.DisplayName())
 	fmt.Println()
-	fmt.Printf("安装: jvm install %s@<版本号>  例如: jvm install %s@21  或  jvm install %s@21.0.12\n",
+	fmt.Printf("安装: jvm install %s@<版本号>  例如: jvm install %s@21  或  jvm install %s@21.0.12+8\n",
 		p.Name(), p.Name(), p.Name())
 	fmt.Printf("查看全部子版本: jvm available %s -a  或  jvm available %s --major 21\n", p.Name(), p.Name())
 }

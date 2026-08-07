@@ -8,9 +8,9 @@ import (
 	"jvm/internal/paths"
 )
 
-// 这些测试覆盖纯函数 splitDistro / majorOf / pureMajor / versionParts / semverLess / versionCore。
-// ResolveVersion 的规则: 纯大版本号 → 取最新 build; 完整版本号 → 精确匹配;
-// 少 build 号 core → 前缀匹配取最新。junction 的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
+// 这些测试覆盖纯函数 splitDistro / majorOf / pureMajor / versionParts / semverLess。
+// ResolveVersion 的规则: 纯大版本号 → 取最新 build; 完整版本号 (含 build 号) → 精确匹配。
+// 不接受半截版本号 (跨发行版本号格式不一, 语义模糊)。junction 的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
 
 // TestSplitDistro 覆盖目录名 → (distro, version) 拆分。
 // 新目录 {distro}-{version} 拆出前缀; 旧的无前缀目录 / 纯版本号输入默认 temurin。
@@ -137,30 +137,6 @@ func TestStripPrefix(t *testing.T) {
 		got := stripPrefix(tt.in)
 		if got != tt.want {
 			t.Errorf("stripPrefix(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
-
-func TestVersionCore(t *testing.T) {
-	tests := []struct {
-		in, want string
-	}{
-		{"21.0.12+8", "21.0.12"},         // 标准: 去 build
-		{"jdk-21.0.12+8", "21.0.12"},     // 带前缀
-		{"21.0.12", "21.0.12"},           // 无 build: 原样
-		{"JDK-17.0.20+8", "17.0.20"},     // 大小写前缀
-		{"8.0.502+7", "8.0.502"},         // JDK8 形式
-		{"  jdk-21.0.12+8  ", "21.0.12"}, // 带空格
-		{"21", "21"},                     // 仅大版本号
-		// {distro}-{version} 新目录
-		{"temurin-21.0.5+11", "21.0.5"},
-		{"corretto-21.0.12.8.1", "21.0.12.8.1"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		got := versionCore(tt.in)
-		if got != tt.want {
-			t.Errorf("versionCore(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }
@@ -303,7 +279,7 @@ func TestResolveVersion(t *testing.T) {
 		{"temurin JDK8 旧目录", "temurin", "8", "8.0.502+7", false},
 		{"temurin 完整版本号 (旧目录)", "temurin", "21.0.12+8", "21.0.12+8", false},
 		{"temurin 完整版本号 (新目录)", "temurin", "21.0.5+11", "temurin-21.0.5+11", false},
-		{"temurin 少 build 号 (命中旧目录)", "temurin", "21.0.12", "21.0.12+8", false},
+		{"temurin 半截 core (无 build 号) → 报错", "temurin", "21.0.12", "", true},
 
 		// corretto: 只能命中 corretto- 前缀目录
 		{"corretto 大版本取最新", "corretto", "21", "corretto-21.0.12.8.1", false},

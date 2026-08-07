@@ -190,13 +190,14 @@ func DisplayName(dirName string) string {
 // ResolveVersion 把用户输入解析到实际安装的版本目录名。规则:
 //  1. 纯大版本号 ("8" / "17" / "21"): 取该 distro 该大版本下语义最新的 build。
 //  2. 完整版本号 ("25.0.4+7" / "jdk-25.0.4+7"): 精确匹配, 带不带 jdk- 前缀都行。
-//  3. 少 build 号的 core ("25.0.4"): 前缀匹配该 core 下语义最新的 build。
+//
+// 不接受半截版本号 (如 "25.0.4"): 不同发行版版本号格式不一 (Temurin 21.0.5+11,
+// Corretto 21.0.12.8.1), 半截形式语义模糊。要装指定 patch 就输完整版本号 (含
+// build 号), 大版本号取最新 —— 两种形式, 清晰可预测。
 //
 // distro 用于先过滤本地目录集合 (只在该发行版的目录里找);
 // 旧的无 distro 前缀目录 (如 "21.0.12+8") 由 splitDistro 视为 temurin,
 // 故 distro=="temurin" 时能命中旧目录, 实现向后兼容。
-//
-// 即两种模糊形式: 给大版本号取该版本最新; 给 core (X.Y.Z) 取该 core 最新 build。
 func ResolveVersion(distro, input string) (string, error) {
 	names, _ := ListLocal()
 	if len(names) == 0 {
@@ -242,23 +243,7 @@ func ResolveVersion(distro, input string) (string, error) {
 			return n, nil
 		}
 	}
-
-	// 3. 少 build 号前缀匹配: 用 core (X.Y.Z) 匹配, 多候选取语义最新。
-	//    让 use 21.0.12 能命中 21.0.12+8, 不必记 build 号。
-	core := versionCore(input)
-	if core != stripPrefix(input) { // 输入含 build 号时已在步骤 2 处理, 这里只管 core
-		return "", fmt.Errorf("没有找到 %s 版本 '%s'。运行 jvm list 查看已安装版本", distro, input)
-	}
-	var coreCands []string
-	for _, n := range cands {
-		if versionCore(n) == core {
-			coreCands = append(coreCands, n)
-		}
-	}
-	if len(coreCands) > 0 {
-		return latestSemver(coreCands), nil
-	}
-	return "", fmt.Errorf("没有找到 %s 版本 '%s'。运行 jvm list 查看已安装版本 (可用大版本号取最新, 或完整版本号)", distro, input)
+	return "", fmt.Errorf("没有找到 %s 版本 '%s'。用大版本号取最新, 或完整版本号 (含 build 号)。运行 jvm list 查看已安装版本", distro, input)
 }
 
 // latestSemver 从一组版本目录名里返回语义最新的那个。
@@ -501,21 +486,6 @@ func stripPrefix(s string) string {
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")
 	s = strings.TrimPrefix(s, "JDK")
-	return s
-}
-
-// versionCore 返回版本串的 core 部分 (去掉前缀和 build 号)。
-// "21.0.12+8"            → "21.0.12"
-// "temurin-21.0.12+8"    → "21.0.12"
-// "jdk-21.0.12+8"        → "21.0.12"
-// "21.0.12"              → "21.0.12"
-// 用于少 build 号的前缀匹配 (如 use 21.0.12 命中 21.0.12+8)。
-// 纯函数, 便于表驱动测试。
-func versionCore(s string) string {
-	s = stripPrefix(s)
-	if i := strings.IndexByte(s, '+'); i >= 0 {
-		return s[:i]
-	}
 	return s
 }
 

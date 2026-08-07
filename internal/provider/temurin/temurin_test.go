@@ -86,3 +86,44 @@ func TestNameAndDisplayName(t *testing.T) {
 		t.Errorf("DisplayName() = %q, want %q", p.DisplayName(), "Temurin (Adoptium)")
 	}
 }
+
+// TestResolveReleaseName 验证版本号 → Adoptium release_name 的标准化。
+// 砍掉半截 core 匹配后: 完整版本号 (含 build 号) 补 jdk- 前缀;
+// 半截形式 (无 build 号) 报错, 引导用户用大版本号取最新或输完整版本号。
+// 纯函数, 不发网络请求 (旧实现会查 feature_releases API 反推 build, 已删)。
+func TestResolveReleaseName(t *testing.T) {
+	p := temurin{}
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		// 已是完整 release_name → 透传
+		{"完整 release_name 透传", "jdk-21.0.12+8", "jdk-21.0.12+8", false},
+		// 含 build 号 → 补 jdk- 前缀 (尊重用户 build 号, 不再 API 反查)
+		{"补 jdk- 前缀", "21.0.12+8", "jdk-21.0.12+8", false},
+		{"带空格 trim", "  17.0.13+11  ", "jdk-17.0.13+11", false},
+		// 半截 core (无 build 号) → 报错
+		{"半截 core 报错", "21.0.12", "", true},
+		{"半截 core 带空格报错", "  21.0.5  ", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := p.ResolveReleaseName(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ResolveReleaseName(%q) 期望报错, got %q", tt.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ResolveReleaseName(%q) 意外报错: %v", tt.in, err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ResolveReleaseName(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

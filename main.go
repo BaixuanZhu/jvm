@@ -97,14 +97,14 @@ func usage() {
   jvm <命令> [参数]
 
 版本号格式: [distro@]version
-  21              默认发行版 (temurin) 的 JDK 21 最新版
-  corretto@21     指定发行版 corretto 的 JDK 21
-  temurin@21.0.12 指定发行版 + 精确版本
-  (省略 distro@ 前缀时默认 temurin)
+  21               默认发行版 (temurin) 的 JDK 21 最新版
+  corretto@21      指定发行版 corretto 的 JDK 21
+  temurin@21.0.5+11 指定发行版 + 完整版本号 (含 build 号)
+  (省略 distro@ 前缀时默认 temurin; 大版本号取最新, 完整版本号精确匹配)
 
 命令:
   install <[distro@]版本>  安装 JDK (例如: jvm install 21  或  jvm install corretto@21)
-  use <[distro@]版本>      切换到指定版本 (支持模糊匹配, 例如: jvm use 21)
+  use <[distro@]版本>      切换到指定版本 (大版本号取最新, 完整版本号精确匹配)
   list                     列出本地已安装的版本
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
   uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)

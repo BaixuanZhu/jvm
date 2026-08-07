@@ -12,10 +12,10 @@ func TestParseVersionSpec(t *testing.T) {
 		wantErr bool
 	}{
 		{"纯大版本号默认 temurin", "21", VersionSpec{Distro: "temurin", Version: "21"}, false},
-		{"精确版本默认 temurin", "21.0.12", VersionSpec{Distro: "temurin", Version: "21.0.12"}, false},
+		{"完整版本号默认 temurin", "21.0.12+8", VersionSpec{Distro: "temurin", Version: "21.0.12+8"}, false},
 		{"完整 release name 默认 temurin", "jdk-21.0.12+8", VersionSpec{Distro: "temurin", Version: "jdk-21.0.12+8"}, false},
 		{"corretto@21", "corretto@21", VersionSpec{Distro: "corretto", Version: "21"}, false},
-		{"microsoft@21.0.12", "microsoft@21.0.12", VersionSpec{Distro: "microsoft", Version: "21.0.12"}, false},
+		{"microsoft@21.0.12+8", "microsoft@21.0.12+8", VersionSpec{Distro: "microsoft", Version: "21.0.12+8"}, false},
 		{"带空格 trim", "  corretto@21  ", VersionSpec{Distro: "corretto", Version: "21"}, false},
 		{"distro 带空格 trim", "  corretto @21", VersionSpec{Distro: "corretto", Version: "21"}, false},
 		{"version 带空格 trim", "corretto@  21  ", VersionSpec{Distro: "corretto", Version: "21"}, false},
