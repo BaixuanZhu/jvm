@@ -24,6 +24,7 @@ import (
 	_ "jvm/internal/provider/microsoft" // 注册 Microsoft Build of OpenJDK 适配器 (init 副作用)
 	"jvm/internal/provider/temurin"
 	"jvm/internal/shell"
+	"jvm/internal/updatecheck"
 	"jvm/internal/upgrade"
 )
 
@@ -43,6 +44,8 @@ func main() {
 	}
 	// 清理上次 upgrade 残留的 .bak (旧进程占用时删不掉, 下次启动再清)
 	upgrade.CleanupStaleBak()
+	// 静默检查 jvm 新版本 (24h 节流, 有新版才提示, 失败永不阻断)
+	updatecheck.Run()
 
 	if len(os.Args) < 2 {
 		usage()

@@ -6,6 +6,8 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,4 +83,97 @@ func httpGet(u, accept string) ([]byte, error) {
 		return nil, fmt.Errorf("API 返回 %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// CompareVersions 按语义版本比较两个版本号, 返回 -1/0/1 (a<b / a==b / a>b)。
+//
+// 输入应是干净的版本号 (不含 v 前缀、distro 前缀), 如 "0.6.1" / "21.0.5+11";
+// 调用方负责预处理 (剥 "v"/"V" 前缀)。按非数字字符分段, 逐段 Atoi 比较,
+// 短的版本后续段视为 0。非数字段按 0 处理, 不打断比较。
+//
+// 纯函数, 便于表驱动测试。
+//
+// 注: junction 包另有 semverLess, 但它的输入是版本目录名 (含 distro- / jdk- 前缀,
+// 内部先剥前缀), 语义与用途不同, 故保留独立实现; 本函数供纯版本号场景 (如自更新
+// 比对) 使用。
+func CompareVersions(a, b string) int {
+	pa := versionSegments(a)
+	pb := versionSegments(b)
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		va, vb := 0, 0
+		if i < len(pa) {
+			va = pa[i]
+		}
+		if i < len(pb) {
+			vb = pb[i]
+		}
+		if va != vb {
+			if va < vb {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+// versionSegments 把版本号按非数字字符拆成数字段切片, 如 "0.6.1" → [0,6,1]。
+// 非法段按 0 处理。纯函数。
+func versionSegments(s string) []int {
+	var parts []int
+	for _, seg := range strings.FieldsFunc(s, func(r rune) bool {
+		return r < '0' || r > '9'
+	}) {
+		if seg == "" {
+			continue
+		}
+		n, err := strconv.Atoi(seg)
+		if err != nil {
+			n = 0
+		}
+		parts = append(parts, n)
+	}
+	return parts
+}
+
+// LatestGitHubTag 查询 GitHub 仓库的最新 release tag_name (如 "v0.6.1")。
+// 用短超时 context (5s) 避免拖慢调用方 (如启动时的静默更新检查)。
+// repo 是 "owner/repo" 格式。返回的 tag 保留 "v" 前缀, 由调用方决定是否剥离。
+func LatestGitHubTag(repo string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	u := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	return fetchTag(ctx, u)
+}
+
+// fetchTag 是 LatestGitHubTag 的核心: GET 目标 URL, 解析 tag_name。
+// 拆出来便于用 httptest 测试 (避免硬编码 api.github.com)。
+func fetchTag(ctx context.Context, u string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", UserAgent())
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API 返回 %d", resp.StatusCode)
+	}
+
+	var body struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("解析 GitHub 响应失败: %w", err)
+	}
+	return body.TagName, nil
 }
