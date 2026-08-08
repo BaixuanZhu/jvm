@@ -7,6 +7,34 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-08
+
+### 修复
+- shell 集成与 Tab 补全在 Documents 目录被重定向时完全不生效: profile 路径
+  用 `KnownFolderPath(FOLDERID_Documents)` 替代 `os.UserHomeDir()/Documents`。
+  用户的 Documents 可能被重定向到其他盘 (OneDrive 接管 / 手动移动 / 企业 GPO),
+  原实现拼出的路径与 PowerShell 实际查找的 `$PROFILE` 不一致。新实现与
+  `[Environment]::GetFolderPath('MyDocuments')` 同源, 保证路径永远一致。
+  (bash profile 用 `FOLDERID_Profile`, 不受 Documents 重定向影响。)
+
+## [0.6.0] - 2026-08-08
+
+### 新增
+- PowerShell 5.1/7+ 与 Git Bash 的 Tab 智能补全 (`jvm <TAB>` 子命令、
+  `jvm install <TAB>` distro@ 前缀、`jvm use <TAB>` 本地已装版本、
+  `jvm available <TAB>` distro 名)。静默自举注入 profile, 用户零配置。
+  提供 `jvm completion <shell> [--install]` 命令供手动重装/诊断。
+  distro 列表从 provider 注册表运行时嵌入, 新增发行版自动刷新。
+- `jvm doctor` 新增 Tab 补全状态检测项。
+
+### 修复
+- `installToProfile` 的 `endMarkerFor` 只替换首个 `>>>`, 改为 `ReplaceAll`
+  (标记首尾各有一个 `>>>`, 两个都要翻成 `<<<`)。
+- `removeBlock` 只移除首个匹配块, 改为循环移除所有重复块 (防止历史遗留
+  的重复块越积越多)。
+- profile 脚本内容改为纯 ASCII (注释英文): 避免 PowerShell 5.1 在中文系统
+  上用 GBK 解码非 ASCII 字节导致语法损坏。不在写入端做 BOM 适配。
+
 ## [0.4.1] - 2026-08-07
 
 ### 修复

@@ -19,6 +19,8 @@
 
 发布：打 tag（`git tag v0.1.0 && git push --tags`）触发 `.github/workflows/release.yml`，在 windows-latest 自动编译、打安装器 + 便携 zip 并发 GitHub Release（双 asset）。
 
+**发版前必须更新 `CHANGELOG.md`**：在 `## [Unreleased]` 下方新增 `## [<版本号>] - <YYYY-MM-DD>` 段落，按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 分类（新增/变更/修复/移除）。CI 的 release workflow 用 awk 从该段落抽取 Release body（抽不到则 Release 页面无说明），漏写会导致 GitHub Release 页面信息缺失。文档/纯测试/重构等非用户可见变更不必记。
+
 ## Code style
 
 - 格式与静态检查走 Makefile：`make fmt`、`make vet`；测试 `go test ./...`。无额外 linter 配置（无 `.golangci.yml` / `.editorconfig`）。
