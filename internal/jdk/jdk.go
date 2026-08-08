@@ -15,7 +15,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"jvm/internal/app"
 	"jvm/internal/paths"
@@ -84,7 +86,7 @@ func Install(asset *app.Asset, name string) error {
 		}
 	} else {
 		fmt.Print("⬇️  下载 (无国内镜像, 直连官方源)...\n")
-		if err := DownloadFile(asset.ZipURL, zipPath); err != nil {
+		if err := download(asset.ZipURL, zipPath); err != nil {
 			return fmt.Errorf("下载失败: %w", err)
 		}
 	}
@@ -168,55 +170,182 @@ func remoteSizeMB(url string) float64 {
 	return 0
 }
 
-// downloadWithFallback 优先用镜像源, 失败则回退到官方源
+// downloadWithFallback 优先用镜像源, 失败则回退到官方源。
+// 续传模式下镜像→官方切换时保留 .part (两者内容一致, SHA256 相同, 可继续续传)。
 func downloadWithFallback(dest, mirrorURL, officialURL string) error {
 	fmt.Print("⬇️  尝试国内镜像...\n")
-	if err := DownloadFile(mirrorURL, dest); err == nil {
+	if err := download(mirrorURL, dest); err == nil {
 		return nil
 	}
-	if _, statErr := os.Stat(dest); statErr == nil {
-		os.Remove(dest)
-	}
 	fmt.Print("⚠️  国内镜像失败, 回退到官方源 (可能较慢)...\n")
-	return DownloadFile(officialURL, dest)
+	return download(officialURL, dest)
 }
 
-// DownloadFile 从 url 下载到本地路径, 带进度百分比显示。
+// download 是 jdk 包内部的统一下载入口: 3 次重试 + 断点续传。
+// 收敛 downloadWithFallback 和直连两处的下载调用, 避免 options 散落。
+func download(url, dest string) error {
+	return DownloadFile(url, dest, WithRetries(3), WithResume(true))
+}
+
+// DownloadOption 配置 DownloadFile 的行为 (重试次数、是否断点续传)。
+// 采用 functional options 模式, 让现有零参调用方 (如 upgrade 包) 无需改动。
+type DownloadOption func(*downloadConfig)
+
+type downloadConfig struct {
+	retries int  // 瞬时错误重试次数 (0 = 不重试)
+	resume  bool // 是否启用断点续传
+}
+
+// WithRetries 设置瞬时错误重试次数。
+func WithRetries(n int) DownloadOption {
+	return func(c *downloadConfig) { c.retries = n }
+}
+
+// WithResume 启用断点续传: 下载中断后保留 .part, 下次从断点继续。
+func WithResume(b bool) DownloadOption {
+	return func(c *downloadConfig) { c.resume = b }
+}
+
+// DownloadFile 从 url 下载到 dest, 带进度百分比显示。
 // 导出以供 upgrade 包复用 (下载自更新 zip)。
-func DownloadFile(url, dest string) error {
+//
+// 续传 (resume=true) 时, 数据写入 dest+".part", 成功后原子 rename 为 dest,
+// 失败保留 .part 供下次续传; 故调用方拿到的 dest 永远是完整文件, 无需感知续传。
+// 续传依赖服务端支持 Range 请求 (响应 206); 不支持时自动回退全量下载。
+func DownloadFile(url, dest string, opts ...DownloadOption) error {
+	cfg := downloadConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	// resume 模式下用 .part 作临时文件; 非 resume 直接写 dest。
+	// 重试循环: 瞬时错误 (网络/5xx) 最多 cfg.retries 次, 指数退避。
+	var lastErr error
+	for attempt := 0; attempt <= cfg.retries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<(attempt-1)) * time.Second // 1s, 2s, 4s...
+			time.Sleep(backoff)
+		}
+		lastErr = downloadOnce(url, dest, cfg.resume)
+		if lastErr == nil {
+			return nil
+		}
+	}
+	return lastErr
+}
+
+// downloadOnce 执行一次下载尝试。
+// resume=true 时探测 .part 已有大小, 发 Range 请求续传; 失败保留 .part。
+func downloadOnce(url, dest string, resume bool) error {
+	partPath := dest
+	offset := int64(0)
+
+	if resume {
+		partPath = dest + ".part"
+		if info, err := os.Stat(partPath); err == nil {
+			offset = info.Size() // 已下载的部分, 从此处续
+		}
+	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", app.UserAgent())
+	if offset > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
 
 	resp, err := app.DownloadClient.Do(req)
 	if err != nil {
-		return err
+		return err // 网络错误 (可重试)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		// 全量响应: 服务端不支持 Range 或首次请求。从头写, 丢弃已有 .part。
+		offset = 0
+	case resp.StatusCode == http.StatusPartialContent:
+		// 续传响应, offset 保持。若之前不是续传请求却收到 206, 视为异常。
+		if offset == 0 {
+			return fmt.Errorf("意外的 206 响应 (未请求 Range)")
+		}
+	default:
+		// 4xx 不重试 (客户端错误, 重试无意义); 5xx 可重试。
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	out, err := os.Create(dest)
+	// 打开文件: 续传时追加写, 全量时覆盖写。
+	flags := os.O_CREATE | os.O_WRONLY
+	if offset > 0 {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	out, err := os.OpenFile(partPath, flags, 0o644)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	total := resp.ContentLength
-	if total > 0 {
-		pr := newProgressReader(resp.Body, total)
-		defer pr.Close()
-		_, err = io.Copy(out, pr)
+	// 写入数据; 走 progressReader 显示进度。
+	// 注意: out 必须在 rename 前 Close —— Windows 不允许 rename 仍打开的文件,
+	// 故不用 defer, 而是显式关闭并处理错误。
+	//
+	// total (完整文件大小) 的确定优先级:
+	//  1. 206 响应的 Content-Range 头 (最可靠, 如 "bytes 131072-262143/262144");
+	//  2. offset + resp.ContentLength (200 响应或 ContentLength 已知时);
+	//  3. 0 = 未知, 不显示进度百分比。
+	total := resolveTotalSize(resp, offset)
+	writeErr := func() error {
+		defer out.Close()
+		var body io.Reader = resp.Body
+		if total > 0 {
+			pr := newProgressReader(resp.Body, total, offset)
+			defer pr.Close()
+			body = pr
+		}
+		_, err := io.Copy(out, body)
 		return err
+	}()
+	if writeErr != nil {
+		return writeErr // 写入错误 (可重试, .part 已保留)
 	}
-	_, err = io.Copy(out, resp.Body)
-	return err
+
+	// 续传模式: 完成后原子 rename .part → dest (此时 out 已 Close)。
+	if resume {
+		if err := os.Rename(partPath, dest); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// progressReader 包装 io.ReadCloser, 定期打印下载进度
+// resolveTotalSize 推算完整文件大小, 用于进度条显示。
+//
+// 206 续传响应里 resp.ContentLength 常为 -1 (服务端用 chunked 编码),
+// 直接 offset + ContentLength 会算错 (出现 >100% 的进度条)。故优先从
+// Content-Range 头解析完整大小; 解析失败回退到 offset + ContentLength;
+// 仍未知 (返回 0) 则不显示百分比。
+func resolveTotalSize(resp *http.Response, offset int64) int64 {
+	// 206: 优先从 Content-Range 头解析完整大小。
+	// 格式 "bytes 131072-262143/262144", 末段是完整文件大小。
+	if cr := resp.Header.Get("Content-Range"); cr != "" {
+		if i := strings.LastIndexByte(cr, '/'); i >= 0 {
+			if n, err := strconv.ParseInt(cr[i+1:], 10, 64); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	// 回退: offset + 本次 ContentLength (200 响应 offset=0 时即 ContentLength)。
+	if resp.ContentLength > 0 {
+		return offset + resp.ContentLength
+	}
+	return 0 // 未知, 不显示进度
+}
+
+// progressReader 包装 io.ReadCloser, 定期打印下载进度。
+// offset 是续传时已有的字节数 (用于把进度条对齐到整体进度)。
 type progressReader struct {
 	reader    io.ReadCloser
 	total     int64
@@ -224,8 +353,8 @@ type progressReader struct {
 	lastPrint int64
 }
 
-func newProgressReader(r io.ReadCloser, total int64) *progressReader {
-	return &progressReader{reader: r, total: total}
+func newProgressReader(r io.ReadCloser, total, offset int64) *progressReader {
+	return &progressReader{reader: r, total: total, received: offset, lastPrint: offset}
 }
 
 func (p *progressReader) Close() error { return p.reader.Close() }
