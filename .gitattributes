@@ -1,0 +1,17 @@
+# 统一行尾符: 仓库与工作区都用 LF
+# 避免 core.autocrlf 在 Windows 上造成的 CRLF "虚假改动" 干扰 git status
+* text=auto eol=lf
+
+# 显式声明主要文件类型 (autocrlf=true 时代曾被误判, 此处一劳永逸)
+*.go    text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.sh    text eol=lf
+Makefile text eol=lf
+
+# 二进制 / 构建产物: 不做行尾转换
+*.exe   binary
+*.zip   binary
+*.msi   binary
