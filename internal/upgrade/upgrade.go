@@ -80,7 +80,7 @@ func Run() {
 
 	fmt.Printf("⬇️  下载 %s ...\n", want)
 	tmpZip := filepath.Join(os.TempDir(), "jvm-upgrade-"+latestVersion+".zip")
-	if err := jdk.DownloadFile(assetURL, tmpZip); err != nil {
+	if err := jdk.DownloadFile(assetURL, tmpZip, jdk.WithRetries(3)); err != nil {
 		app.Fail("下载失败: " + err.Error())
 	}
 	defer os.Remove(tmpZip)
@@ -233,7 +233,7 @@ func fetchExpectedChecksum(rel *githubRelease, filename string) (string, bool) {
 	}
 
 	tmpChecksum := filepath.Join(os.TempDir(), "jvm-checksums.txt")
-	if err := jdk.DownloadFile(checksumURL, tmpChecksum); err != nil {
+	if err := jdk.DownloadFile(checksumURL, tmpChecksum, jdk.WithRetries(3)); err != nil {
 		return "", false
 	}
 	defer os.Remove(tmpChecksum)

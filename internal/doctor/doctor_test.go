@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -283,6 +284,133 @@ func TestCheckCurrentJava(t *testing.T) {
 			t.Error("期望失败 (无 java.exe)")
 		}
 	})
+}
+
+// === checkJavaVersion ===
+
+func TestCheckJavaVersion(t *testing.T) {
+	// 构造一个真实存在的 java.exe 占位文件 (函数先 Stat 再调 run, 不存在则跳过)。
+	javaBin := filepath.Join(t.TempDir(), "java.exe")
+	if err := os.WriteFile(javaBin, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("正常执行", func(t *testing.T) {
+		// 注入假执行器: 返回含 "version" 的输出, 无错误。
+		c := checkJavaVersion(javaBin, func(string) (string, error) {
+			return `openjdk version "21.0.5" 2024-10-15`, nil
+		})
+		if !c.ok {
+			t.Errorf("期望通过, got detail=%q", c.detail)
+		}
+	})
+	t.Run("执行失败", func(t *testing.T) {
+		c := checkJavaVersion(javaBin, func(string) (string, error) {
+			return "", fmt.Errorf("exit status 1")
+		})
+		if c.ok {
+			t.Error("期望失败 (执行出错)")
+		}
+	})
+	t.Run("输出异常", func(t *testing.T) {
+		c := checkJavaVersion(javaBin, func(string) (string, error) {
+			return "some garbage without the keyword", nil
+		})
+		if c.ok {
+			t.Error("期望失败 (输出无 version 字样)")
+		}
+	})
+	t.Run("java.exe 不存在则跳过", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "nope.exe")
+		c := checkJavaVersion(missing, func(string) (string, error) {
+			t.Error("java.exe 不存在时不应调执行器")
+			return "", nil
+		})
+		if !c.ok {
+			t.Error("java.exe 不存在应视为跳过 (通过)")
+		}
+	})
+}
+
+// === checkVersionsIntegrity ===
+
+func TestCheckVersionsIntegrity(t *testing.T) {
+	versionsDir := t.TempDir()
+
+	// 构造两个完整版本目录 + 一个半成品。
+	mkdirBin := func(name string) {
+		if err := os.MkdirAll(filepath.Join(versionsDir, name, "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(versionsDir, name, "bin", "java.exe"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkdirBin("temurin-21.0.5+11")
+	mkdirBin("corretto-17.0.12.8.1")
+	// 半成品: 只有目录没有 bin/java.exe
+	if err := os.MkdirAll(filepath.Join(versionsDir, "temurin-11.0.25+9"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("有半成品", func(t *testing.T) {
+		c := checkVersionsIntegrity(versionsDir)
+		if c.ok {
+			t.Error("期望失败 (有半成品目录)")
+		}
+		if !strings.Contains(c.detail, "temurin-11.0.25+9") {
+			t.Errorf("detail 应含坏目录名, got %q", c.detail)
+		}
+	})
+
+	t.Run("全部完整", func(t *testing.T) {
+		// 补上半成品的 java.exe (先建 bin 目录)
+		if err := os.MkdirAll(filepath.Join(versionsDir, "temurin-11.0.25+9", "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(versionsDir, "temurin-11.0.25+9", "bin", "java.exe"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c := checkVersionsIntegrity(versionsDir)
+		if !c.ok {
+			t.Errorf("期望通过, got detail=%q", c.detail)
+		}
+	})
+}
+
+// === checkRegistryPathResidue ===
+
+func TestCheckRegistryPathResidue(t *testing.T) {
+	// 构造一个含 java.exe 的"旧 JDK 目录"和一个干净的空目录。
+	oldJDK := t.TempDir()
+	if err := os.WriteFile(filepath.Join(oldJDK, "java.exe"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	emptyDir := t.TempDir()
+	const currentLink = `C:\fake\.jvm\current`
+	binPath := filepath.Join(currentLink, "bin")
+	sep := string(os.PathListSeparator)
+
+	tests := []struct {
+		name    string
+		regPath string
+		wantOK  bool
+	}{
+		{"PATH 为空", "", true},
+		{"只有 current/bin", binPath, true},
+		{"current/bin + 空目录", binPath + sep + emptyDir, true},
+		{"有旧 JDK 残留", binPath + sep + oldJDK, false},
+		{"旧 JDK 在 current 之前", oldJDK + sep + binPath, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := checkRegistryPathResidue(tt.regPath, currentLink)
+			if c.ok != tt.wantOK {
+				t.Errorf("ok=%v, want %v (detail=%q)", c.ok, tt.wantOK, c.detail)
+			}
+		})
+	}
 }
 
 // skipSymlinkTest 在需要符号链接权限的环境 (Windows 非开发者模式) 跳过。

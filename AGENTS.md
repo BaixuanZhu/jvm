@@ -40,8 +40,9 @@
 - `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH。
 - `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）。
 - `internal/upgrade/` — 走 GitHub Release 自更新。
+- `internal/updatecheck/` — 启动时静默检查 GitHub 新版本（24h 节流，落后才提示，失败永不阻断）；只依赖 `app`，不依赖 `upgrade`（检查提示与执行升级职责分离）。
 - `internal/paths/` — `~/.jvm` 下目录路径常量（`init()` 里基于 `os.UserHomeDir()` 计算）。
-- `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
+- `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client、`CompareVersions` 版本比较、`LatestGitHubTag` release 查询）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
 
 运行模型：`~/.jvm/current` 是指向当前选中版本的 junction；PATH 永远指向 `~/.jvm/current/bin`，切换版本 = 重建 junction，故新终端无需刷新环境变量即生效。当前终端即时生效靠 shell 集成函数在 `jvm use` 后于会话内刷新 `JAVA_HOME`/PATH（子进程改不了父 shell 环境，靠 wrapper 函数绕过）。
 
@@ -66,7 +67,7 @@
 
 ## Known gotchas
 
-- **测试覆盖**：纯函数表驱动单测（`app` / `junction` / `provider` 及各 provider 子包 / `cmd` / `jdk` / `shell` / `upgrade` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除等无副作用逻辑；下载/junction 创建/真实网络请求等 Windows 耦合与 I/O 路径暂无单测，改动时注意人工验证（`go test -cover` 约 10-70%，纯函数路径高，I/O 路径低）。
+- **测试覆盖**：纯函数表驱动单测（`app` / `junction` / `provider` 及各 provider 子包 / `cmd` / `jdk` / `shell` / `upgrade` / `updatecheck` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流等逻辑；junction 创建/真实网络请求等 Windows 耦合路径暂无单测，改动时注意人工验证。
 - **CMD（cmd.exe）不支持** shell 自动集成（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口。
 - `make installer` 依赖 NSIS；release workflow 用 `choco install nsis` 后需显式把 `C:\Program Files (x86)\NSIS` 写入 `GITHUB_PATH`（choco 不自动刷新 job PATH）。
 - `jvm` 每次启动**静默自举**：把自身目录加入用户 PATH 并补全 shell 集成（幂等）——调试时留意首次运行的副作用。

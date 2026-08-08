@@ -161,7 +161,7 @@ func ListLocal() (names []string, currentTarget string) {
 	}
 	for _, e := range entries {
 		// 只认能解析出大版本号的目录 (含 {distro}-{version} 和旧的无前缀形式)
-		if e.IsDir() && majorOf(e.Name()) > 0 {
+		if e.IsDir() && MajorOf(e.Name()) > 0 {
 			names = append(names, e.Name())
 		}
 	}
@@ -224,7 +224,7 @@ func ResolveVersion(distro, input string) (string, error) {
 	if major, ok := pureMajor(input); ok {
 		var majorCands []string
 		for _, n := range cands {
-			if majorOf(n) == major {
+			if MajorOf(n) == major {
 				majorCands = append(majorCands, n)
 			}
 		}
@@ -342,10 +342,10 @@ func MigrateLegacyDirs() error {
 		if newName == "" {
 			// 非遗留目录。可能是新的 {distro}-{version} 命名 —— 各发行版版本号格式不一
 			// (Temurin 用 21.0.5+11, Corretto 用 21.0.12.8.1), 不能用固定正则判断。
-			// 这里用 majorOf: 只要 distro 前缀后能解析出合法大版本号, 就视为有效目录跳过。
+			// 这里用 MajorOf: 只要 distro 前缀后能解析出合法大版本号, 就视为有效目录跳过。
 			// 注意必须放在 legacyToNewName 之后 —— splitDistro 会把遗留的 jdk-21.0.12+8
 			// 拆出 "jdk" 前缀, 若先判这里会误跳过该迁移的目录。
-			if majorOf(name) > 0 {
+			if MajorOf(name) > 0 {
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "⚠️  跳过无法识别的目录: %s (不是已知的 JDK 版本目录)\n", name)
@@ -430,14 +430,15 @@ func splitDistro(name string) (distro, version string) {
 	return prefix, rest
 }
 
-// majorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。
+// MajorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。
 // 目录名采用 {distro}-{version} 形式 ("temurin-21.0.12+8" → 21); 同时容错
 // 旧的无前缀目录 ("21.0.12+8" → 21, 启动时视为 temurin) 和带 jdk- / jdk
 // 前缀的历史输入 (迁移期的用户手输 / 残留旧目录)。
 //
 // 先用 splitDistro 剥掉 distro 前缀 (若有), 再取开头连续数字。
+// 导出以供 doctor 包复用 (检查版本目录有效性), 避免解析逻辑重复。
 // 纯函数, 便于表驱动测试。
-func majorOf(s string) int {
+func MajorOf(s string) int {
 	_, ver := splitDistro(strings.TrimSpace(s))
 	ver = strings.TrimPrefix(ver, "jdk-")
 	ver = strings.TrimPrefix(ver, "jdk")

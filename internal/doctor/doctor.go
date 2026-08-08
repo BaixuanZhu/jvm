@@ -7,6 +7,9 @@
 //   - PATH 冲突: 是否有别的 java.exe 出现在 ~/.jvm/current/bin 之前 (会抢先)
 //   - shell 集成: PowerShell 5.x/7+ 和 bash 的 profile 是否已注入
 //   - current 的 java: ~/.jvm/current/bin/java.exe 是否存在
+//   - current 的 java 版本: 实跑 java -version 是否成功 (排除损坏二进制)
+//   - 版本目录完整性: ~/.jvm/versions/ 下各目录是否都有 bin/java.exe
+//   - 注册表 PATH 残留: 用户 PATH 里是否有非 current/bin 的旧 JDK 路径
 //
 // 检查函数都接收显式参数 (路径/已读好的环境值), 不直接读全局状态 ——
 // 这样可以用临时目录和注入值做表驱动测试, 不污染真实注册表/profile。
@@ -14,12 +17,16 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"jvm/internal/env"
+	"jvm/internal/junction"
 	"jvm/internal/paths"
 	"jvm/internal/shell"
 )
@@ -45,11 +52,13 @@ func Run() {
 
 	// 从真实全局状态读取检查所需输入
 	javaHome, _ := env.ReadUserEnv("JAVA_HOME")
+	regPath, _ := env.ReadUserEnv("PATH")
 	profiles := []profileItem{
 		{"PowerShell 5.x", shell.PsProfilePath()},
 		{"PowerShell 7+", shell.Ps7ProfilePath()},
 		{"bash", shell.BashProfilePath()},
 	}
+	javaBin := filepath.Join(paths.CurrentLink, "bin", "java.exe")
 
 	checks := []check{
 		checkDirs(paths.Root, paths.VersionsDir),
@@ -59,6 +68,9 @@ func Run() {
 		checkShellIntegration(profiles),
 		checkCompletion(profiles),
 		checkCurrentJava(paths.CurrentLink),
+		checkJavaVersion(javaBin, runJavaVersion),
+		checkVersionsIntegrity(paths.VersionsDir),
+		checkRegistryPathResidue(regPath, paths.CurrentLink),
 	}
 
 	problems := 0
@@ -250,4 +262,114 @@ func checkCurrentJava(currentLink string) check {
 		}
 	}
 	return check{ok: true, name: "current 的 java", detail: "java.exe 就绪"}
+}
+
+// versionRunner 执行 java -version 并返回输出 (stdout+stderr 合并)。
+// 拆成参数类型是为了让 checkJavaVersion 可注入假执行器做测试 ——
+// 否则测试要么真跑 java 要么造假 exe, 都很别扭。
+type versionRunner func(javaBin string) (output string, err error)
+
+// runJavaVersion 是生产用的真实执行器: 5s 超时, 合并 stderr (java -version 走 stderr)。
+func runJavaVersion(javaBin string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, javaBin, "-version").CombinedOutput()
+	return string(out), err
+}
+
+// checkJavaVersion 实跑 java -version, 排除 "文件存在但二进制损坏 / 缺 DLL" 的情况。
+// run 参数是执行器 (注入, 便于测试)。javaBin 不存在视为跳过 (由 checkCurrentJava 负责)。
+func checkJavaVersion(javaBin string, run versionRunner) check {
+	if _, err := os.Stat(javaBin); err != nil {
+		return check{ok: true, name: "java 版本", detail: "current 无 java.exe, 已由上文检查"}
+	}
+	output, err := run(javaBin)
+	if err != nil {
+		return check{
+			ok:     false,
+			name:   "java 版本",
+			detail: fmt.Sprintf("执行 java -version 失败: %v", err),
+			fix:    "该版本可能损坏或缺 DLL, 建议 jvm uninstall 后重装",
+		}
+	}
+	// java -version 输出含 "version" 字样即认为正常
+	if !strings.Contains(strings.ToLower(output), "version") {
+		return check{
+			ok:     false,
+			name:   "java 版本",
+			detail: fmt.Sprintf("java -version 输出异常: %s", strings.TrimSpace(output)),
+			fix:    "该版本可能损坏, 建议 jvm uninstall 后重装",
+		}
+	}
+	return check{ok: true, name: "java 版本", detail: "java -version 可正常执行"}
+}
+
+// checkVersionsIntegrity 检查 versions 目录下各版本子目录是否都有 bin/java.exe。
+// 只检查能解析出大版本号的目录 (与 junction.ListLocal 一致), 跳过临时/无关目录。
+func checkVersionsIntegrity(versionsDir string) check {
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return check{ok: true, name: "版本目录完整性", detail: "versions 目录不存在或不可读, 已由上文检查"}
+	}
+	var broken []string
+	total := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if junction.MajorOf(e.Name()) == 0 {
+			continue // 非版本目录 (临时目录等), 跳过
+		}
+		total++
+		javaExe := filepath.Join(versionsDir, e.Name(), "bin", "java.exe")
+		if _, err := os.Stat(javaExe); err != nil {
+			broken = append(broken, e.Name())
+		}
+	}
+	if total == 0 {
+		return check{ok: true, name: "版本目录完整性", detail: "无已安装版本"}
+	}
+	if len(broken) > 0 {
+		return check{
+			ok:     false,
+			name:   "版本目录完整性",
+			detail: fmt.Sprintf("缺少 bin/java.exe 的目录: %s", strings.Join(broken, ", ")),
+			fix:    "这些可能是解压中断的半成品, 建议 jvm uninstall <目录名> 后重装",
+		}
+	}
+	return check{ok: true, name: "版本目录完整性", detail: fmt.Sprintf("%d 个版本目录均完整", total)}
+}
+
+// checkRegistryPathResidue 检查注册表持久化的用户 PATH 里是否有非 current/bin 的旧 JDK 路径。
+// 区别于 checkPathConflict (检查进程 PATH 的抢先冲突), 这里检查注册表里的残留:
+// 即曾经手动加过的、未被 jvm 管理的 java.exe 路径, 它们会在新终端里造成版本混乱。
+func checkRegistryPathResidue(regPath, currentLink string) check {
+	if strings.TrimSpace(regPath) == "" {
+		return check{ok: true, name: "注册表 PATH 残留", detail: "用户 PATH 未持久化, 无残留"}
+	}
+	binPath := filepath.Join(currentLink, "bin")
+	var residue []string
+	for _, entry := range strings.Split(regPath, string(os.PathListSeparator)) {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		// 跳过 current/bin (jvm 管理的)
+		if strings.EqualFold(filepath.Clean(entry), filepath.Clean(binPath)) {
+			continue
+		}
+		// 其余含 java.exe 的条目 = 旧 JDK 残留
+		if _, err := os.Stat(filepath.Join(entry, "java.exe")); err == nil {
+			residue = append(residue, entry)
+		}
+	}
+	if len(residue) == 0 {
+		return check{ok: true, name: "注册表 PATH 残留", detail: "用户 PATH 无旧 JDK 残留"}
+	}
+	return check{
+		ok:     false,
+		name:   "注册表 PATH 残留",
+		detail: fmt.Sprintf("PATH 里有旧 JDK: %s", strings.Join(residue, ", ")),
+		fix:    "从用户环境变量 PATH 中移除旧 JDK 路径, 由 jvm use 统一管理",
+	}
 }
