@@ -79,6 +79,8 @@ func main() {
 		doctor.Run()
 	case "init":
 		shell.InitDispatch(args)
+	case "completion":
+		shell.InitCompletionDispatch(args)
 	case "upgrade":
 		upgrade.Run()
 	case "version", "-v", "--version":
@@ -118,6 +120,7 @@ func usage() {
   current                  显示当前正在使用的版本
   doctor                   诊断环境配置 (目录/junction/PATH/JAVA_HOME/shell 集成)
   init <shell>             打印/安装 shell 集成脚本 (通常自动完成, 无需手动)
+  completion <shell>       打印/安装 shell Tab 补全脚本 (通常自动完成, 无需手动)
   upgrade                  检查并更新 jvm 自身 (通过 GitHub Release)
   version                  显示 jvm 版本号
   help                     显示此帮助信息

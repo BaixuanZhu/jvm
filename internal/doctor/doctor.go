@@ -57,6 +57,7 @@ func Run() {
 		checkJavaHome(javaHome, paths.CurrentLink),
 		checkPathConflict(os.Getenv("PATH"), paths.CurrentLink),
 		checkShellIntegration(profiles),
+		checkCompletion(profiles),
 		checkCurrentJava(paths.CurrentLink),
 	}
 
@@ -215,6 +216,25 @@ func checkShellIntegration(profiles []profileItem) check {
 		name:   "shell 集成",
 		detail: fmt.Sprintf("未集成: %s", strings.Join(missing, ", ")),
 		fix:    "重开终端自动补全, 或手动 jvm init <shell> --install",
+	}
+}
+
+// checkCompletion 检查给定的 profile 列表是否已注入 Tab 补全块。
+func checkCompletion(profiles []profileItem) check {
+	var missing []string
+	for _, p := range profiles {
+		if !shell.CompletionHasIntegration(p.path) {
+			missing = append(missing, p.label)
+		}
+	}
+	if len(missing) == 0 {
+		return check{ok: true, name: "Tab 补全", detail: "PowerShell 5.x/7+ 和 bash profile 均已注入"}
+	}
+	return check{
+		ok:     false,
+		name:   "Tab 补全",
+		detail: fmt.Sprintf("未注入: %s", strings.Join(missing, ", ")),
+		fix:    "重开终端自动补全, 或手动 jvm completion <shell> --install",
 	}
 }
 
