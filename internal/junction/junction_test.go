@@ -8,7 +8,7 @@ import (
 	"jvm/internal/paths"
 )
 
-// 这些测试覆盖纯函数 splitDistro / majorOf / pureMajor / versionParts / semverLess。
+// 这些测试覆盖纯函数 splitDistro / MajorOf / pureMajor / versionParts / semverLess。
 // ResolveVersion 的规则: 纯大版本号 → 取最新 build; 完整版本号 (含 build 号) → 精确匹配。
 // 不接受半截版本号 (跨发行版本号格式不一, 语义模糊)。junction 的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
 
@@ -80,9 +80,9 @@ func TestMajorOf(t *testing.T) {
 		{"abc", 0},
 	}
 	for _, tt := range tests {
-		got := majorOf(tt.in)
+		got := MajorOf(tt.in)
 		if got != tt.want {
-			t.Errorf("majorOf(%q) = %d, want %d", tt.in, got, tt.want)
+			t.Errorf("MajorOf(%q) = %d, want %d", tt.in, got, tt.want)
 		}
 	}
 }
