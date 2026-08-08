@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"jvm/internal/app"
+
+	"golang.org/x/sys/windows"
 )
 
 // profileMarker 是写入 profile 的注入块标记, 用于幂等检测
@@ -191,22 +193,49 @@ func Ps7ProfilePath() string { return ps7ProfilePath() }
 // BashProfilePath 返回 bash profile 路径 (~/.bashrc)。
 func BashProfilePath() string { return bashProfilePath() }
 
-// psProfilePath 返回 Windows PowerShell 5.x 的 profile 路径
+// psProfilePath 返回 Windows PowerShell 5.x 的 profile 路径。
+//
+// 必须用 KnownFolderPath(FOLDERID_Documents) 而非 os.UserHomeDir()/Documents:
+// 用户的 Documents 目录可能被重定向到其他盘 (OneDrive 接管 / 手动移动 /
+// 企业 GPO), 此时 os.UserHomeDir() 仍返回 C:\Users\xxx, 拼出的路径与
+// PowerShell 实际查找的 $PROFILE 不一致。KnownFolderPath 读注册表
+// User Shell Folders\Personal, 与 [Environment]::GetFolderPath('MyDocuments')
+// 同源, 保证两者永远一致。
 func psProfilePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1")
+	doc := documentsDir()
+	return filepath.Join(doc, "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1")
 }
 
-// ps7ProfilePath 返回 PowerShell 7+ 的 profile 路径
+// ps7ProfilePath 返回 PowerShell 7+ 的 profile 路径 (同样遵循 Documents 重定向)
 func ps7ProfilePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
+	doc := documentsDir()
+	return filepath.Join(doc, "PowerShell", "Microsoft.PowerShell_profile.ps1")
 }
 
-// bashProfilePath 返回 bash profile 路径 (~/.bashrc)
+// bashProfilePath 返回 bash profile 路径 (~/.bashrc)。
+// .bashrc 在用户主目录而非 Documents, 用 FOLDERID_Profile (不受 Documents 重定向影响)。
 func bashProfilePath() string {
-	home, _ := os.UserHomeDir()
+	home := profileDir()
 	return filepath.Join(home, ".bashrc")
+}
+
+// documentsDir 返回用户的 Documents 目录 (遵循重定向)。
+// KnownFolderPath 失败时回退到 os.UserHomeDir()/Documents (默认未重定向场景)。
+func documentsDir() string {
+	if doc, err := windows.KnownFolderPath(windows.FOLDERID_Documents, windows.KF_FLAG_DEFAULT); err == nil {
+		return doc
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Documents")
+}
+
+// profileDir 返回用户主目录 (C:\Users\xxx, 不受 Documents 重定向影响)。
+func profileDir() string {
+	if p, err := windows.KnownFolderPath(windows.FOLDERID_Profile, windows.KF_FLAG_DEFAULT); err == nil {
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	return home
 }
 
 // shellLabel 返回给用户看的 shell 名称
