@@ -27,6 +27,12 @@
 - 代码注释与用户可见的 CLI 文案均为**中文**；新增输出信息请保持中文。
 - 常规 Go 惯例：包注释、导出符号注释、错误用 `fmt.Errorf("...: %w", err)` 包裹。
 
+## Workflow
+
+- **单人开发，直接提交 `main`**：不需要为每个特性另开分支，可直接在 `main` 上提交。仅在改动破坏性较大、想隔离试错、或并发推进多条线时才**推荐**（非强制）开 feat/fix 分支；合并用 `git merge --no-ff`（历史里已有 `Merge feat/...` 记录可循）。无论是否开分支，提交流程不变。
+- 提交信息用 Conventional Commits（中文描述），历史风格参考：`feat(jdk): ...` / `fix(shell): ...` / `docs: ...` / `refactor: ...`；可选 scope 用对应包名。
+- 发版：打 tag（`git tag vX.Y.Z && git push --tags`）→ CI 自动编 + 发 Release；详见下文 Setup / Hard constraints。
+
 ## Architecture
 
 命令路由在 `main.go`（纯 switch，无框架），各子命令实现在 `cmd` 包（编排层：解析参数 → 调底层包 → 输出），基础设施按职责拆在 `internal/`：
@@ -38,11 +44,13 @@
 - `internal/jdk/` — 下载、SHA256 校验、解压、原子替换到 `~/.jvm/versions/`（发行版无关，只认 `*app.Asset`）。
 - `internal/junction/` — Windows junction 创建/删除/解析，用**原生 syscall**（`FSCTL_SET_REPARSE_POINT`），不调 `cmd.exe`（避免注入面）。
 - `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH。
-- `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）。
+- `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）；profile 路径走 `KnownFolderPath`（`FOLDERID_Documents`/`FOLDERID_Profile`），兼容 Documents 目录重定向。
 - `internal/upgrade/` — 走 GitHub Release 自更新。
 - `internal/updatecheck/` — 启动时静默检查 GitHub 新版本（24h 节流，落后才提示，失败永不阻断）；只依赖 `app`，不依赖 `upgrade`（检查提示与执行升级职责分离）。
+- `internal/doctor/` — `jvm doctor` 环境诊断：目录结构 / junction / JAVA_HOME / PATH 冲突 / shell 集成 / current 的 java / java 版本（实跑 `java -version`）/ 版本目录完整性 / 注册表 PATH 残留 共 9 项，每项输出 ✓/✗ 并附修复建议。检查函数收显式参数、不读全局，便于表驱动测试。
+- `internal/config/` — 用户配置加载（`~/.jvm/config.toml`）：当前覆盖 `mirror`（下载镜像，默认清华 TUNA）与 `arch`（目标架构，默认 x64，可选 aarch64）。优先级：环境变量（`JVM_MIRROR`/`JVM_ARCH`）> 配置文件 > 默认值；配置文件缺失视为正常，解析失败警告后回退默认。
 - `internal/paths/` — `~/.jvm` 下目录路径常量（`init()` 里基于 `os.UserHomeDir()` 计算）。
-- `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client、`CompareVersions` 版本比较、`LatestGitHubTag` release 查询）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
+- `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client、`CompareVersions` 版本比较、`LatestGitHubTag` release 查询、`Asset`/`Release`/`VersionSpec` 跨 provider 下载契约）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
 
 运行模型：`~/.jvm/current` 是指向当前选中版本的 junction；PATH 永远指向 `~/.jvm/current/bin`，切换版本 = 重建 junction，故新终端无需刷新环境变量即生效。当前终端即时生效靠 shell 集成函数在 `jvm use` 后于会话内刷新 `JAVA_HOME`/PATH（子进程改不了父 shell 环境，靠 wrapper 函数绕过）。
 
@@ -67,7 +75,7 @@
 
 ## Known gotchas
 
-- **测试覆盖**：纯函数表驱动单测（`app` / `junction` / `provider` 及各 provider 子包 / `cmd` / `jdk` / `shell` / `upgrade` / `updatecheck` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流等逻辑；junction 创建/真实网络请求等 Windows 耦合路径暂无单测，改动时注意人工验证。
+- **测试覆盖**：纯函数表驱动单测（`app` / `asset` / `junction` / `provider` 及各 provider 子包 / `cmd` / `config` / `doctor` / `jdk` / `shell` / `upgrade` / `updatecheck` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流、doctor 各项诊断（临时目录 + 注入值隔离）等逻辑；junction 创建/真实网络请求等 Windows 耦合路径暂无单测，改动时注意人工验证。
 - **CMD（cmd.exe）不支持** shell 自动集成（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口。
 - `make installer` 依赖 NSIS；release workflow 用 `choco install nsis` 后需显式把 `C:\Program Files (x86)\NSIS` 写入 `GITHUB_PATH`（choco 不自动刷新 job PATH）。
 - `jvm` 每次启动**静默自举**：把自身目录加入用户 PATH 并补全 shell 集成（幂等）——调试时留意首次运行的副作用。
