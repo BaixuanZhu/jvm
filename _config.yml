@@ -1,7 +1,7 @@
 # jvm 官网（gh-pages 分支）
 # 纯自定义布局，不使用现成主题；GitHub Pages 原生 Jekyll 构建
 
-title: jvm
+title: Java Version Manager
 description: >-
   jvm 是 Windows 上的 Java 版本管理器，类似 nvm-windows / jabba。
   支持 Temurin / Corretto / Microsoft Build of OpenJDK，

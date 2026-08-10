@@ -4,8 +4,6 @@ description: jvm 各版本变更记录。
 layout: docs
 ---
 
-> 本页与仓库 [CHANGELOG.md]({{ site.github_repo }}/blob/main/CHANGELOG.md) 同步，遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
-
 ## [0.7.0] - 2026-08-08
 
 ### 新增
