@@ -1,5 +1,7 @@
 # jvm — Windows 上的 Java 版本管理器
 
+> 🌐 **官网**：<https://baixuanzhu.github.io/jvm/>
+
 一个类似 nvm-windows / jabba 的 JDK 版本管理工具，专为 Windows 设计。
 支持 **Temurin / Corretto / Microsoft Build of OpenJDK** 等多个发行版，提供双击安装包，无需管理员权限。
 
