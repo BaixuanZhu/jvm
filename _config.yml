@@ -1,0 +1,36 @@
+# jvm 官网（gh-pages 分支）
+# 纯自定义布局，不使用现成主题；GitHub Pages 原生 Jekyll 构建
+
+title: jvm
+description: >-
+  jvm 是 Windows 上的 Java 版本管理器，类似 nvm-windows / jabba。
+  支持 Temurin / Corretto / Microsoft Build of OpenJDK，
+  一键安装、秒级切换、免管理员权限。
+lang: zh-CN
+
+# 项目页必须设置 baseurl
+baseurl: "/jvm"
+url: "https://baixuanzhu.github.io"
+
+# /docs/install/ 形式的简洁 URL
+permalink: pretty
+
+# 仓库信息（seo-tag 与页面内链接使用）
+github_repo: https://github.com/BaixuanZhu/jvm
+github_releases: https://github.com/BaixuanZhu/jvm/releases/latest
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+# 站点内只渲染 markdown 页面，排除无关文件
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+
+defaults:
+  - scope:
+      path: "docs"
+    values:
+      layout: docs

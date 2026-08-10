@@ -1,0 +1,55 @@
+---
+title: 配置与原理
+description: jvm 的配置文件、目录结构与切换原理。
+---
+
+## 工作原理
+
+```
+~/.jvm/
+  versions/
+    21.0.12+8/          ← 解压后的 JDK（以纯 semver 命名）
+    17.0.20+8/
+  current/              ← junction，指向当前选中的版本
+    bin/java.exe ...
+```
+
+- **PATH** 永远指向 `~/.jvm/current/bin`（只配置一次）
+- **JAVA_HOME** 永远指向 `~/.jvm/current`
+- 切换版本 = 重建 `current` 这个 junction 的指向
+- 因为 PATH 没变，**任何新终端自动用新版本，无需刷新环境变量**
+
+当前终端即时生效则靠 shell 集成函数：`jvm use` 调用真正的 `jvm.exe` 后，由 wrapper 函数在会话内刷新 `JAVA_HOME` 和 `PATH`（子进程改不了父 shell 环境，靠函数绕过）。
+
+## 配置文件（可选）
+
+jvm 默认用清华镜像源下载、安装 `x64` 架构的 JDK。如需更改，在 `~/.jvm/config.toml` 写：
+
+```toml
+# 下载镜像源（默认清华 TUNA）。海外用户可改成官方或其他镜像。
+mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
+
+# 目标架构（默认 x64）。Windows on ARM 设备用 aarch64。
+arch = "aarch64"
+```
+
+也可用环境变量临时覆盖（优先级高于配置文件）：
+
+```powershell
+$env:JVM_MIRROR = "https://your.mirror/Adoptium"
+$env:JVM_ARCH = "aarch64"
+jvm install 21
+```
+
+优先级：**环境变量 > 配置文件 > 默认值**。不配置则全部用默认值，无需创建文件。
+
+## 设计决策
+
+| 问题 | 选择 | 原因 |
+|------|------|------|
+| 切换机制 | Windows junction (reparse point) | 免管理员权限、新终端也生效 |
+| junction 创建 | 原生 `FSCTL_SET_REPARSE_POINT` (syscall) | 不调用 cmd.exe，无注入面 |
+| 当前终端生效 | 启动时自动注入 shell wrapper 函数 | 子进程改不了父 shell 环境 |
+| PATH 持久化 | 注册表 `HKCU\Environment` + 广播 `WM_SETTINGCHANGE` | 不用 setx（会截断长 PATH） |
+| 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退 | 国内快，且官方兜底 |
+| 安全校验 | 全部下载强制 SHA256 校验 | 损坏/篡改即报错中止 |

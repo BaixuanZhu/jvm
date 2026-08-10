@@ -1,0 +1,19 @@
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="{{ '/' | relative_url }}">
+      <span class="brand-logo">☕</span>
+      <span class="brand-name">jvm</span>
+    </a>
+
+    <button class="nav-toggle" aria-label="打开导航" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+
+    <nav class="site-nav">
+      <a href="{{ '/docs/install/' | relative_url }}">文档</a>
+      <a href="{{ '/changelog/' | relative_url }}">更新日志</a>
+      <a href="{{ site.github_repo }}" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-sm btn-primary" href="{{ site.github_releases }}" target="_blank" rel="noopener">下载</a>
+    </nav>
+  </div>
+</header>
