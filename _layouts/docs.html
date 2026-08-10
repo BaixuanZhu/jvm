@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}">
-  <link rel="stylesheet" href="{{ '/assets/css/syntax.css' | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}?v={{ site.time | date: '%Y%m%d%H%M' }}">
+  <link rel="stylesheet" href="{{ '/assets/css/syntax.css' | relative_url }}?v={{ site.time | date: '%Y%m%d%H%M' }}">
   {% seo %}
 </head>
 <body class="docs-page">
@@ -40,6 +40,6 @@
 
   {% include footer.html %}
 
-  <script src="{{ '/assets/js/main.js' | relative_url }}"></script>
+  <script src="{{ '/assets/js/main.js' | relative_url }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 </body>
 </html>

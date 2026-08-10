@@ -101,10 +101,10 @@
     items.forEach(function (el) { el.classList.add("visible"); });
   }
 
-  // ---- 首页演示终端：纯前端打字动画（无 JS / 减弱动效时保留静态内容） ----
+  // ---- 首页演示终端：纯前端打字动画 ----
+  // 注：减弱动效（prefers-reduced-motion）用户由 CSS 关掉光标闪烁，动画照常播放
   var demo = document.getElementById("demo-term");
-  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (demo && !reduceMotion) {
+  if (demo) {
     // [样式类, 文本]，cmd 为打字输入的命令，out 为逐行浮现的输出
     var script = [
       { type: "cmd", text: "jvm install 21" },
