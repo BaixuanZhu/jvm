@@ -7,7 +7,7 @@ title: 首页
 <section class="hero">
   <div class="container hero-split">
     <div class="hero-text">
-      <span class="hero-badge">开源 · MIT · 仅 Windows x64</span>
+      <span class="hero-badge">开源 · MIT · Windows x64 / ARM64</span>
       <h1>Windows 上的<br><span class="grad">Java 版本管理器</span></h1>
       <p class="hero-sub">
         类似 nvm-windows / jabba 的 JDK 版本管理工具。
