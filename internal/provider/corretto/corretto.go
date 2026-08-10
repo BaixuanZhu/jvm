@@ -8,12 +8,17 @@
 // 限制: CDN 只保留每个大版本的最新 patch, 历史 patch 直链返回 403, 不可下载
 // (官方下载页同样只提供最新版)。故完整版本号 install 仅当恰好是当前最新 patch 时成功。
 //
-// 仅支持 windows/x64 (与 jvm 整体一致)。
+// 目标架构: Amazon Corretto 官方没有 Windows ARM64 构建 (21/25 下载页 Windows 仅
+// x64, 已实测), 故 arch=aarch64 时所有查询/安装入口统一报 errNoWindowsARM64,
+// 引导用户改用 temurin / microsoft。indexmap 结构按架构 map 化, 未来官方若新增
+// Windows ARM64 分支, 只需放宽 checkArch 守卫。
 package corretto
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -39,6 +44,25 @@ func init() {
 	provider.Register(corretto{})
 }
 
+// arch 是目标架构 (x64 / aarch64), 决定查询 indexmap 的哪个架构分支。
+// 由 Configure 在启动期一次性设置 (经 provider.ConfigureAll 分发), 之后进程内只读。
+var arch = app.ArchX64
+
+// errNoWindowsARM64 是 arch=aarch64 时的统一错误。
+// Amazon Corretto 官方没有 Windows ARM64 构建 (21/25 官方下载页 Windows 仅 x64),
+// 明确报错并给出替代建议, 避免用户误以为装了原生 ARM64 JDK。
+var errNoWindowsARM64 = errors.New(
+	"Amazon Corretto 暂未提供 Windows ARM64 (aarch64) 构建。\n" +
+		"   可改用 temurin 或 microsoft: jvm install 21  /  jvm install microsoft@21")
+
+// checkArch 在目标架构不受支持时返回错误; 目前仅 x64 可用。
+func checkArch() error {
+	if arch == app.ArchARM64 {
+		return errNoWindowsARM64
+	}
+	return nil
+}
+
 // corretto 是 Provider 适配器。嵌入 provider.Base 拿默认实现:
 //   - ShortSemver: Corretto 版本号 (21.0.12.8.1) 已是干净形式, 透传即可
 //   - ResolveReleaseName: 版本号即 release 标识, 透传即可
@@ -52,10 +76,26 @@ func (corretto) Name() string { return distroName }
 // DisplayName 返回用户可见的发行版名。
 func (corretto) DisplayName() string { return "Amazon Corretto" }
 
+// Configure 实现 provider.Configurable: 设置目标架构 (x64 / aarch64)。
+// mirror 参数被忽略: Corretto 直连 CloudFront CDN, 无镜像源。
+// 非法 arch 警告并回退 x64; 空值保持默认。
+func (corretto) Configure(cfgArch, _ string) {
+	if a := strings.TrimSpace(cfgArch); a != "" {
+		if norm, ok := app.NormArch(a); ok {
+			arch = norm
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠️  不支持的架构 %q (仅支持 x64 / aarch64), 回退 x64\n", a)
+		}
+	}
+}
+
 // Available 列出所有可安装的大版本 (含 LTS 标记)。
 // Corretto 的 version-info.json 把版本分为 LTS / feature / EOL 三类,
 // 此处把 LTS 和 feature (当前在维护的非 LTS, 如 26) 都列为可安装, EOL 不列。
 func (corretto) Available() ([]app.Release, error) {
+	if err := checkArch(); err != nil {
+		return nil, err
+	}
 	info, err := fetchVersionInfo()
 	if err != nil {
 		return nil, err
@@ -77,6 +117,9 @@ func (corretto) Available() ([]app.Release, error) {
 //   - 完整版本号 → 校验是否为 indexmap 中该 major 的当前版本 (Corretto CDN 只保留最新,
 //     旧 patch 直链 403); 不匹配则报错引导
 func (c corretto) Resolve(spec app.VersionSpec) (*app.Asset, error) {
+	if err := checkArch(); err != nil {
+		return nil, err
+	}
 	v := strings.TrimSpace(spec.Version)
 
 	// 解析大版本号 (无论输入是纯大版本还是完整版本号, 都要先拿到 major)
@@ -89,8 +132,8 @@ func (c corretto) Resolve(spec app.VersionSpec) (*app.Asset, error) {
 		return nil, err
 	}
 
-	// 从 indexmap 取该 major 当前最新版的 Windows/x64/jdk/zip 条目
-	entry, err := fetchWindowsJDKEntry(major)
+	// 从 indexmap 取该 major 当前最新版的 Windows/{arch}/jdk/zip 条目
+	entry, err := fetchWindowsJDKEntry(major, arch)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +157,10 @@ func (c corretto) Resolve(spec app.VersionSpec) (*app.Asset, error) {
 // LatestPatch 返回指定大版本的最新版 (供 jvm available 表格用)。
 // 直接复用 fetchWindowsJDKEntry, 比 Resolve 轻量 (不解析用户输入)。
 func (c corretto) LatestPatch(major int) (*app.Asset, error) {
-	entry, err := fetchWindowsJDKEntry(major)
+	if err := checkArch(); err != nil {
+		return nil, err
+	}
+	entry, err := fetchWindowsJDKEntry(major, arch)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +170,10 @@ func (c corretto) LatestPatch(major int) (*app.Asset, error) {
 // ListVersions 返回指定大版本的全部子版本。
 // Corretto CDN 每个大版本只保留最新 patch, 故每个 major 仅 1 条。
 func (c corretto) ListVersions(major int) ([]*app.Asset, error) {
-	entry, err := fetchWindowsJDKEntry(major)
+	if err := checkArch(); err != nil {
+		return nil, err
+	}
+	entry, err := fetchWindowsJDKEntry(major, arch)
 	if err != nil {
 		return nil, err
 	}
@@ -148,14 +197,14 @@ type checksumEntry struct {
 	Resource    string `json:"resource"`        // "/downloads/resources/21.0.12.8.1/amazon-corretto-..."
 }
 
-// indexMap 对应 indexmap_with_checksum.json, 只声明 windows/x64/jdk 分支
+// indexMap 对应 indexmap_with_checksum.json。
+// windows 下按架构名 ("x64" / "aarch64" ...) 索引: 用 map 而非硬编码字段,
+// 未来官方新增 Windows 架构分支时结构无需变动 (目前官方仅有 x64)。
 type indexMap struct {
-	Windows struct {
-		X64 struct {
-			JDK map[string]struct { // key 是 major ("8" / "11" / "21" ...)
-				Zip checksumEntry
-			} `json:"jdk"`
-		} `json:"x64"`
+	Windows map[string]struct { // key 是架构名 ("x64" / "aarch64")
+		JDK map[string]struct { // key 是 major ("8" / "11" / "21" ...)
+			Zip checksumEntry
+		} `json:"jdk"`
 	} `json:"windows"`
 }
 
@@ -202,8 +251,8 @@ func fetchVersionInfo() (*versionInfo, error) {
 	return &info, nil
 }
 
-// fetchWindowsJDKEntry 从 indexmap 里取 windows/x64/jdk/{major}/zip 条目
-func fetchWindowsJDKEntry(major int) (jdkEntry, error) {
+// fetchWindowsJDKEntry 从 indexmap 里取 windows/{targetArch}/jdk/{major}/zip 条目
+func fetchWindowsJDKEntry(major int, targetArch string) (jdkEntry, error) {
 	body, err := app.HTTPGetJSON(indexmapURL)
 	if err != nil {
 		return jdkEntry{}, fmt.Errorf("查询 Corretto 版本列表失败: %w", err)
@@ -213,12 +262,16 @@ func fetchWindowsJDKEntry(major int) (jdkEntry, error) {
 		return jdkEntry{}, fmt.Errorf("解析 Corretto indexmap 失败: %w", err)
 	}
 
-	entry, ok := idx.Windows.X64.JDK[fmt.Sprintf("%d", major)]
+	archBranch, ok := idx.Windows[targetArch]
 	if !ok {
-		return jdkEntry{}, fmt.Errorf("没有找到 Corretto 大版本 %d 的 Windows/x64 JDK", major)
+		return jdkEntry{}, fmt.Errorf("Corretto 暂未提供 Windows/%s 的 JDK 构建", targetArch)
+	}
+	entry, ok := archBranch.JDK[fmt.Sprintf("%d", major)]
+	if !ok {
+		return jdkEntry{}, fmt.Errorf("没有找到 Corretto 大版本 %d 的 Windows/%s JDK", major, targetArch)
 	}
 	if entry.Zip.Resource == "" {
-		return jdkEntry{}, fmt.Errorf("Corretto 大版本 %d 的 Windows/x64 JDK 资源为空", major)
+		return jdkEntry{}, fmt.Errorf("Corretto 大版本 %d 的 Windows/%s JDK 资源为空", major, targetArch)
 	}
 	return jdkEntry{entry.Zip}, nil
 }

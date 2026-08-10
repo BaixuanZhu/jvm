@@ -20,19 +20,21 @@ import (
 	"jvm/internal/doctor"
 	"jvm/internal/env"
 	"jvm/internal/junction"
+	"jvm/internal/provider"
 	_ "jvm/internal/provider/corretto"  // 注册 Amazon Corretto 适配器 (init 副作用)
 	_ "jvm/internal/provider/microsoft" // 注册 Microsoft Build of OpenJDK 适配器 (init 副作用)
-	"jvm/internal/provider/temurin"
+	_ "jvm/internal/provider/temurin"   // 注册 Temurin (Adoptium) 适配器 (init 副作用)
 	"jvm/internal/shell"
 	"jvm/internal/updatecheck"
 	"jvm/internal/upgrade"
 )
 
 func main() {
-	// 加载用户配置 (~/.jvm/config.toml 或环境变量), 配置镜像源和架构。
+	// 加载用户配置 (~/.jvm/config.toml 或环境变量), 把目标架构/镜像分发给
+	// 所有实现了 provider.Configurable 的适配器 (temurin/corretto/microsoft)。
 	// 必须在任何网络请求前完成, 故置于自举链路最前面。
 	cfg := config.Load()
-	temurin.Configure(cfg.Arch, cfg.Mirror)
+	provider.ConfigureAll(cfg.Arch, cfg.Mirror)
 
 	// 静默自举: 把 jvm 自身目录加入 PATH + 安装 shell 集成 (首次运行, 幂等)
 	// 这样用户无需任何手动配置, 重开终端后 jvm use 即在当前终端即时生效

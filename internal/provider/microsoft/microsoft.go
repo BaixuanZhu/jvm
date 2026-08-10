@@ -1,15 +1,18 @@
 // Package microsoft 是 Microsoft Build of OpenJDK 发行版的 provider 适配器。
 //
 // 数据源: aka.ms 短链接重定向探测 (无 JSON API)。
-//   - 大版本探测: aka.ms/download-jdk/microsoft-jdk-{major}-windows-x64.zip
-//     → 301 到 aka.ms/download-jdk/microsoft-jdk-{fullversion}-windows-x64.zip
+//   - 大版本探测: aka.ms/download-jdk/microsoft-jdk-{major}-windows-{arch}.zip
+//     → 301 到 aka.ms/download-jdk/microsoft-jdk-{fullversion}-windows-{arch}.zip
 //     → 301 到 download.visualstudio.microsoft.com 的最终 CDN 直链
 //   - 版本号从重定向 Location 的文件名里解析 (如 microsoft-jdk-21.0.12-windows-x64.zip → 21.0.12)
-//   - SHA256 从旁路文件 microsoft-jdk-{fullversion}-windows-x64.zip.sha256sum.txt 获取
+//   - SHA256 从旁路文件 microsoft-jdk-{fullversion}-windows-{arch}.zip.sha256sum.txt 获取
 //     (内容格式: "<hash>  <filename>", 标准 sha256sum 输出)
 //
 // 仅支持 LTS 版本 (11/17/21/25) —— Microsoft 对非 LTS 版本支持窗口短, 此处不列。
 // 直连 Akamai/VisualStudio CDN, 国内可直连, 无需镜像, MirrorURL 留空。
+//
+// 目标架构 (x64 / aarch64) 由 Configure 在启动期设置; 两个架构的短链与旁路
+// 校验文件模式完全一致 (已实测 11/17/21/25 均有 aarch64 构建)。
 //
 // aka.ms 行为: 不存在的短链会 302 到 bing.com 搜索页, 据此判断版本是否存在。
 package microsoft
@@ -18,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -29,15 +33,19 @@ const (
 	// akaBase 是 Microsoft JDK 短链根
 	akaBase = "https://aka.ms/download-jdk"
 
-	// filenameTpl 是 JDK zip 文件名模板: microsoft-jdk-{version}-windows-x64.zip
-	// version 是 major ("21") 或 full ("21.0.12")
+	// filenameTpl 是 JDK zip 文件名模板: microsoft-jdk-{version}-windows-{arch}.zip
+	// version 是 major ("21") 或 full ("21.0.12"); arch 是 x64 / aarch64
 	//   - major: aka.ms 会 301 到含 full version 的 aka.ms 链接 (再 301 到 CDN)
 	//   - full:  aka.ms 直接 301 到 CDN
-	filenameTpl = "microsoft-jdk-%s-windows-x64.zip"
+	filenameTpl = "microsoft-jdk-%s-windows-%s.zip"
 
 	// distroName 是发行版标识, 用作目录命名前缀和 CLI 的 distro@ 前缀
 	distroName = "microsoft"
 )
+
+// arch 是目标架构 (x64 / aarch64), 用于拼接 aka.ms 短链与旁路校验文件名。
+// 由 Configure 在启动期一次性设置 (经 provider.ConfigureAll 分发), 之后进程内只读。
+var arch = app.ArchX64
 
 // ltsReleases 是 Microsoft Build of OpenJDK 支持的 LTS 大版本。
 // Microsoft 不提供"可用版本列表"API, 这里写死 LTS; 非 LTS 版本 (如 22/23/24)
@@ -60,6 +68,19 @@ func (microsoft) Name() string { return distroName }
 
 // DisplayName 返回用户可见的发行版名。
 func (microsoft) DisplayName() string { return "Microsoft Build of OpenJDK" }
+
+// Configure 实现 provider.Configurable: 设置目标架构 (x64 / aarch64)。
+// mirror 参数被忽略: Microsoft 直连 VisualStudio CDN, 无镜像源。
+// 非法 arch 警告并回退 x64; 空值保持默认。
+func (microsoft) Configure(cfgArch, _ string) {
+	if a := strings.TrimSpace(cfgArch); a != "" {
+		if norm, ok := app.NormArch(a); ok {
+			arch = norm
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠️  不支持的架构 %q (仅支持 x64 / aarch64), 回退 x64\n", a)
+		}
+	}
+}
 
 // Available 列出所有可安装的大版本。
 // Microsoft 无可用版本列表 API, 返回写死的 LTS 版本集合。
@@ -125,13 +146,13 @@ func (m microsoft) ListVersions(major int) ([]*app.Asset, error) {
 // major 用于填充 Asset.Major 字段。
 func (m microsoft) probe(input string, major int) (*app.Asset, error) {
 	// 第一步: 跟随 aka.ms 重定向链, 拿到最终直链和解析出的完整版本号
-	finalURL, fullVersion, err := resolveRedirect(input)
+	finalURL, fullVersion, err := resolveRedirect(input, arch)
 	if err != nil {
 		return nil, err
 	}
 
 	// 第二步: 拉取 SHA256 旁路文件
-	sha256, err := fetchSHA256(fullVersion)
+	sha256, err := fetchSHA256(fullVersion, arch)
 	if err != nil {
 		// SHA256 拉取失败阻断安装: jdk 包的完整性校验依赖它, 缺失等于无校验。
 		return nil, err
@@ -149,14 +170,15 @@ func (m microsoft) probe(input string, major int) (*app.Asset, error) {
 }
 
 // resolveRedirect 跟随 aka.ms 重定向链, 返回最终 CDN 直链和解析出的完整版本号。
+// targetArch 决定短链文件名 (-windows-x64 / -windows-aarch64)。
 //
 // 重定向链 (有效版本):
 //   - 大版本号输入: aka.ms/...21... → 301 → aka.ms/...21.0.12... → 301 → visualstudio CDN
 //   - 完整版本输入: aka.ms/...21.0.12... → 301 → visualstudio CDN
 //
 // 无效版本: aka.ms → 302 → bing.com (据此报错)
-func resolveRedirect(version string) (finalURL, fullVersion string, err error) {
-	shortURL := fmt.Sprintf("%s/%s", akaBase, fmt.Sprintf(filenameTpl, version))
+func resolveRedirect(version, targetArch string) (finalURL, fullVersion string, err error) {
+	shortURL := fmt.Sprintf("%s/%s", akaBase, fmt.Sprintf(filenameTpl, version, targetArch))
 
 	client := &http.Client{
 		Timeout: 30 * 1e9, // 30s
@@ -194,7 +216,7 @@ func resolveRedirect(version string) (finalURL, fullVersion string, err error) {
 
 	// 从最终 URL 解析完整版本号
 	finalURL = resp.Request.URL.String()
-	fullVersion = extractVersionFromFilename(resp.Request.URL.Path)
+	fullVersion = extractVersionFromFilename(resp.Request.URL.Path, targetArch)
 	if fullVersion == "" {
 		return "", "", fmt.Errorf("无法从 %s 解析版本号", finalURL)
 	}
@@ -203,9 +225,9 @@ func resolveRedirect(version string) (finalURL, fullVersion string, err error) {
 
 // fetchSHA256 拉取旁路校验文件, 解析出 SHA256 哈希。
 // 文件内容格式: "<hash>  <filename>" (标准 sha256sum 输出)
-func fetchSHA256(fullVersion string) (string, error) {
+func fetchSHA256(fullVersion, targetArch string) (string, error) {
 	shaURL := fmt.Sprintf("%s/%s", akaBase,
-		fmt.Sprintf(filenameTpl, fullVersion)+".sha256sum.txt")
+		fmt.Sprintf(filenameTpl, fullVersion, targetArch)+".sha256sum.txt")
 
 	body, err := app.HTTPGetText(shaURL)
 	if err != nil {
@@ -220,15 +242,15 @@ func fetchSHA256(fullVersion string) (string, error) {
 }
 
 // extractVersionFromFilename 从文件名里提取版本号。
-// "microsoft-jdk-21.0.12-windows-x64.zip" → "21.0.12"
-func extractVersionFromFilename(path string) string {
+// targetArch 决定剥离的后缀: "microsoft-jdk-21.0.12-windows-x64.zip" → "21.0.12"
+func extractVersionFromFilename(path, targetArch string) string {
 	base := path
 	if i := strings.LastIndexByte(path, '/'); i >= 0 {
 		base = path[i+1:]
 	}
-	// 去前缀 "microsoft-jdk-" 和后缀 "-windows-x64.zip[...]"
+	// 去前缀 "microsoft-jdk-" 和后缀 "-windows-{arch}.zip[...]"
 	const prefix = "microsoft-jdk-"
-	const suffix = "-windows-x64"
+	suffix := "-windows-" + targetArch
 	if !strings.HasPrefix(base, prefix) {
 		return ""
 	}

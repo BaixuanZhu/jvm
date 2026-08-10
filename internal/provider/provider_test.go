@@ -94,3 +94,32 @@ func TestBaseDefaults(t *testing.T) {
 		t.Errorf("Base.ResolveReleaseName 应透传, got %q err %v", got, err)
 	}
 }
+
+// configurableFake 是实现 Configurable 的测试 provider, 记录收到的配置。
+type configurableFake struct {
+	fakeProvider
+	gotArch, gotMirror string
+	called             bool
+}
+
+func (c *configurableFake) Configure(arch, mirror string) {
+	c.gotArch, c.gotMirror = arch, mirror
+	c.called = true
+}
+
+// TestConfigureAll 验证 ConfigureAll 只向实现了 Configurable 的 provider 分发配置,
+// 未实现的 (fakeProvider) 不报错、不受影响。
+func TestConfigureAll(t *testing.T) {
+	fake := &configurableFake{fakeProvider: fakeProvider{name: "fake-provider-cfg"}}
+	Register(fake)
+
+	ConfigureAll("aarch64", "https://mirror.example/Adoptium")
+
+	if !fake.called {
+		t.Fatal("实现 Configurable 的 provider 应收到 Configure 调用")
+	}
+	if fake.gotArch != "aarch64" || fake.gotMirror != "https://mirror.example/Adoptium" {
+		t.Errorf("收到的配置 = (%q, %q), 期望 (aarch64, https://mirror.example/Adoptium)",
+			fake.gotArch, fake.gotMirror)
+	}
+}

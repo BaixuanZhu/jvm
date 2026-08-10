@@ -34,15 +34,15 @@ const (
 )
 
 // 以下两项是可配置的包级状态, 默认值保持原有行为 (清华镜像 + x64 架构)。
-// 由 Configure() 在程序启动期一次性设置 (见 main.go), 之后进程内只读。
-// 沿用 paths.Root / app.HTTPClient 的"包级共享状态"惯例。
+// 由 Configure() 在程序启动期一次性设置 (经 provider.ConfigureAll 分发),
+// 之后进程内只读。沿用 paths.Root / app.HTTPClient 的"包级共享状态"惯例。
 var (
 	// mirror 是默认的国内下载镜像 (清华 TUNA, Adoptium 全量镜像)
 	// 文件结构: {mirror}/{major}/jdk/{arch}/windows/{filename}
 	mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
 
 	// arch 是目标架构, 用于 API 查询和镜像 URL 拼接
-	arch = "x64"
+	arch = app.ArchX64
 )
 
 func init() {
@@ -55,17 +55,16 @@ type temurin struct {
 	provider.Base
 }
 
-// Configure 在程序启动时设置架构和镜像源。非法 arch 回退 x64 并打印警告。
-// 供 main 包加载完配置后调用; 不调用时使用默认值 (清华镜像 + x64)。
-func Configure(cfgArch, cfgMirror string) {
-	a := strings.TrimSpace(cfgArch)
-	switch a {
-	case "x64", "aarch64":
-		arch = a
-	case "":
-		// 空值保持默认
-	default:
-		fmt.Fprintf(os.Stderr, "⚠️  不支持的架构 %q (仅支持 x64 / aarch64), 回退 x64\n", a)
+// Configure 实现 provider.Configurable: 程序启动时设置架构和镜像源。
+// 非法 arch 回退 x64 并打印警告; 空值保持默认 (清华镜像 + x64)。
+// 配置写入包级状态, 对后续所有 temurin 实例生效。
+func (temurin) Configure(cfgArch, cfgMirror string) {
+	if a := strings.TrimSpace(cfgArch); a != "" {
+		if norm, ok := app.NormArch(a); ok {
+			arch = norm
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠️  不支持的架构 %q (仅支持 x64 / aarch64), 回退 x64\n", a)
+		}
 	}
 	if m := strings.TrimSpace(cfgMirror); m != "" {
 		mirror = m
@@ -207,7 +206,7 @@ func (t temurin) ListVersions(major int) ([]*app.Asset, error) {
 	)
 	body, err := app.HTTPGetJSON(u)
 	if err != nil {
-		return nil, fmt.Errorf("查询版本失败: %w", err)
+		return nil, fmt.Errorf("查询大版本 %d (windows/%s) 失败: %w", major, arch, err)
 	}
 
 	var releases releaseResponse
@@ -215,20 +214,20 @@ func (t temurin) ListVersions(major int) ([]*app.Asset, error) {
 		return nil, fmt.Errorf("解析 API 响应失败: %w", err)
 	}
 	if len(releases) == 0 {
-		return nil, fmt.Errorf("没有找到大版本 %d 的 GA 版本", major)
+		return nil, fmt.Errorf("没有找到大版本 %d (windows/%s) 的 GA 版本", major, arch)
 	}
 
 	assets := make([]*app.Asset, 0, len(releases))
 	for _, r := range releases {
 		a, err := assetFromRecord(r, fmt.Sprintf("大版本 %d", major))
 		if err != nil {
-			continue // 单条记录缺 Windows/x64 zip 就跳过, 不影响其余
+			continue // 单条记录缺 Windows zip 就跳过, 不影响其余
 		}
 		a.ReleaseName = t.ShortSemver(a.Semver)
 		assets = append(assets, a)
 	}
 	if len(assets) == 0 {
-		return nil, fmt.Errorf("大版本 %d 没有可下载的 zip 包", major)
+		return nil, fmt.Errorf("大版本 %d (windows/%s) 没有可下载的 zip 包", major, arch)
 	}
 	return assets, nil
 }
@@ -356,7 +355,9 @@ func fetchLatestAsset(major int) (*app.Asset, error) {
 	)
 	body, err := app.HTTPGetJSON(u)
 	if err != nil {
-		return nil, fmt.Errorf("查询版本失败: %w", err)
+		// 404 常见于该大版本没有当前架构的 GA 构建
+		// (如 Temurin 的 Windows ARM64 覆盖不全), 消息里带出架构便于定位
+		return nil, fmt.Errorf("查询大版本 %d (windows/%s) 失败: %w", major, arch, err)
 	}
 
 	var releases releaseResponse
@@ -364,7 +365,7 @@ func fetchLatestAsset(major int) (*app.Asset, error) {
 		return nil, fmt.Errorf("解析 API 响应失败: %w", err)
 	}
 	if len(releases) == 0 {
-		return nil, fmt.Errorf("没有找到大版本 %d 的 GA 版本", major)
+		return nil, fmt.Errorf("没有找到大版本 %d (windows/%s) 的 GA 版本", major, arch)
 	}
 	return assetFromRecord(releases[0], fmt.Sprintf("大版本 %d", major))
 }
@@ -379,7 +380,7 @@ func fetchAssetByReleaseName(releaseName string) (*app.Asset, error) {
 	)
 	body, err := app.HTTPGetJSON(u)
 	if err != nil {
-		return nil, fmt.Errorf("查询版本 %s 失败: %w", releaseName, err)
+		return nil, fmt.Errorf("查询版本 %s (windows/%s) 失败: %w", releaseName, arch, err)
 	}
 
 	var r releaseRecord // release_name 端点返回单个对象

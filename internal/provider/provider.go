@@ -10,8 +10,8 @@
 //   - ShortSemver/ResolveReleaseName 走嵌入 Base 基类的默认实现 (多数 provider
 //     透传即可), 适配器只需 override 真正不同的方法。这是 Go 社区惯例
 //     (database/sql/driver、fs.FS 的扩展都这么组织)。
-//   - 可选能力 (如 CDN 直链解析) 拆成独立接口, 上层按需类型断言,
-//     不污染核心接口。
+//   - 可选能力拆成独立接口, 上层按需类型断言, 不污染核心接口:
+//     Configurable (接收全局下载配置: 目标架构/镜像) 由 ConfigureAll 统一分发。
 //   - 注册表用 init() 自注册, 新增 provider 只需在 main.go 空白导入。
 package provider
 
@@ -75,6 +75,29 @@ func (Base) ShortSemver(semver string) string { return semver }
 // (把 "21.0.12+8" 标准化成 Adoptium release_name "jdk-21.0.12+8")。
 // 不接受半截版本号 (无 build 号), 由上层 Resolve 引导用大版本号取最新。
 func (Base) ResolveReleaseName(version string) (string, error) { return version, nil }
+
+// Configurable 是可选接口: provider 实现它来接收全局下载配置
+// (目标架构 arch / 下载镜像 mirror, 均为 config 包加载后的最终值)。
+//
+// 实现方按需取用参数: 如 temurin 两者都用, corretto/microsoft 只用 arch
+// (它们没有镜像源)。arch 的合法值见 app.NormArch; 实现方收到非法值时应
+// 警告并回退自身默认, 不应 panic。
+//
+// 未实现该接口的 provider 视为不关心全局下载配置。
+type Configurable interface {
+	Configure(arch, mirror string)
+}
+
+// ConfigureAll 把全局下载配置分发给所有实现了 Configurable 的 provider。
+// main 启动时调用一次; 新增 provider 只要实现 Configurable 即自动接入,
+// 无需改动 main.go。
+func ConfigureAll(arch, mirror string) {
+	for _, p := range All() {
+		if c, ok := p.(Configurable); ok {
+			c.Configure(arch, mirror)
+		}
+	}
+}
 
 // Default 是无 distro@ 前缀时的默认发行版名。
 const Default = app.DefaultDistro

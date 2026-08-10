@@ -40,6 +40,8 @@ func TestConfigure(t *testing.T) {
 	}{
 		{"合法 x64", "x64", "https://m1", "x64", "https://m1"},
 		{"合法 aarch64", "aarch64", "https://m2", "aarch64", "https://m2"},
+		{"别名 amd64", "amd64", "https://m1", "x64", "https://m1"},
+		{"别名 arm64", "arm64", "https://m2", "aarch64", "https://m2"},
 		{"带空格", "  x64  ", "  https://m3  ", "x64", "https://m3"},
 		{"非法 arch 回退 x64", "arm32", "https://m4", "x64", "https://m4"},
 		{"空 arch 保持默认", "", "https://m5", "x64", "https://m5"},
@@ -49,7 +51,7 @@ func TestConfigure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// 每个子用例从已知状态开始
 			arch, mirror = "x64", origMirror
-			Configure(tt.inArch, tt.inMirror)
+			temurin{}.Configure(tt.inArch, tt.inMirror)
 			if arch != tt.wantArch {
 				t.Errorf("arch = %q, want %q", arch, tt.wantArch)
 			}
