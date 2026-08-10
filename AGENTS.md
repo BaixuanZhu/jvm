@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。**仅支持 Windows x64**。
+`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。**仅支持 Windows（x64 / ARM64）**。
 
 ## Setup commands
 
@@ -56,7 +56,7 @@
 
 ## Hard constraints
 
-- **仅 Windows x64**：大量依赖 junction、注册表、Windows syscall，不可移植到 *nix。
+- **仅 Windows（x64 / ARM64）**：大量依赖 junction、注册表、Windows syscall，不可移植到 *nix。ARM64 设备经 `arch = "aarch64"` 配置支持（见 `internal/config`）。
 - **Go 1.26+**（见 `go.mod`）。
 - **版本号通过 ldflags 单一注入**：`internal/app/app.go` 的 `Version` 是 `var`（默认值 `0.1.0-dev`），构建时由 Makefile 的 `-X jvm/internal/app.Version=$(VERSION)` 覆盖（`VERSION` 取自 `git describe`）；CI 从 tag 推导并传给 `make build`。**禁止**在源码里手写版本字面量、禁止让 `Makefile` 与 `app.Version` 各维护一份。
 - 自更新仓库地址硬编码在 `internal/upgrade/upgrade.go` 的 `githubRepo` 常量，fork 后需改。
