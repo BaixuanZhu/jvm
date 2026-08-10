@@ -77,7 +77,8 @@ title: 首页
         <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
         <span class="term-title">PowerShell</span>
       </div>
-      <pre><span class="c"># 1. 装一个 JDK</span>
+      <!-- 无 JS 时显示静态内容；有 JS 时替换为打字动画 -->
+      <pre id="demo-term"><span class="c"># 1. 装一个 JDK</span>
 <span class="p">jvm install 21</span>
 
 <span class="c"># 2. 切换到它</span>

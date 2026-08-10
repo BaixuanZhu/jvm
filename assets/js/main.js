@@ -100,4 +100,90 @@
   } else {
     items.forEach(function (el) { el.classList.add("visible"); });
   }
+
+  // ---- 首页演示终端：纯前端打字动画（无 JS / 减弱动效时保留静态内容） ----
+  var demo = document.getElementById("demo-term");
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (demo && !reduceMotion) {
+    // [样式类, 文本]，cmd 为打字输入的命令，out 为逐行浮现的输出
+    var script = [
+      { type: "cmd", text: "jvm install 21" },
+      { type: "out", lines: [
+        ["dim", "正在解析 temurin@21 ..."],
+        ["dim", "下载 OpenJDK 21.0.12+8  [████████████] 100%"],
+        ["o",   "✓ SHA256 校验通过"],
+        ["o",   "✓ 安装完成：temurin@21.0.12+8"]
+      ]},
+      { type: "cmd", text: "jvm use 21" },
+      { type: "out", lines: [
+        ["o",   "✓ 已切换到 temurin@21.0.12+8"],
+        ["dim", "当前终端同步生效，无需重开"]
+      ]},
+      { type: "cmd", text: "java -version" },
+      { type: "out", lines: [
+        ["o",   'openjdk version "21.0.12" 2026-07-21 LTS'],
+        ["dim", "OpenJDK Runtime Environment Temurin-21.0.12+8"]
+      ]}
+    ];
+
+    var step = 0;
+
+    function newline() { demo.appendChild(document.createTextNode("\n")); }
+
+    function typeCommand(text, done) {
+      if (demo.textContent.length > 0) newline(); // 命令块之间空一行
+      var prompt = document.createElement("span");
+      prompt.className = "dim";
+      prompt.textContent = "$ ";
+      var typed = document.createElement("span");
+      typed.className = "p";
+      var cursor = document.createElement("span");
+      cursor.className = "cursor";
+      demo.appendChild(prompt);
+      demo.appendChild(typed);
+      demo.appendChild(cursor);
+
+      var i = 0;
+      var timer = setInterval(function () {
+        typed.textContent = text.slice(0, ++i);
+        if (i >= text.length) {
+          clearInterval(timer);
+          cursor.remove();
+          newline();
+          setTimeout(done, 420);
+        }
+      }, 55);
+    }
+
+    function showLines(lines, idx, done) {
+      if (idx >= lines.length) { setTimeout(done, 500); return; }
+      var span = document.createElement("span");
+      span.className = lines[idx][0];
+      span.textContent = lines[idx][1];
+      demo.appendChild(span);
+      newline();
+      setTimeout(function () { showLines(lines, idx + 1, done); }, 360);
+    }
+
+    function runStep() {
+      if (step >= script.length) {
+        // 一轮结束，停留片刻后清屏重来
+        setTimeout(function () {
+          demo.innerHTML = "";
+          step = 0;
+          runStep();
+        }, 5200);
+        return;
+      }
+      var s = script[step++];
+      if (s.type === "cmd") {
+        typeCommand(s.text, runStep);
+      } else {
+        showLines(s.lines, 0, runStep);
+      }
+    }
+
+    demo.innerHTML = "";
+    runStep();
+  }
 })();
