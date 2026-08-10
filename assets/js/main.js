@@ -38,8 +38,27 @@
     });
   });
 
-  // 文档页代码块：自动注入复制按钮
+  // 文档页代码块：包装成「顶栏（语言标签 + 复制按钮）+ 代码区」结构
   document.querySelectorAll(".docs-content pre").forEach(function (pre) {
+    // 从 kramdown/rouge 的 language-* 包装类里取语言名
+    var lang = "";
+    var wrapper = pre.closest("[class*='language-']");
+    if (wrapper) {
+      var m = wrapper.className.match(/language-([a-zA-Z0-9+#-]+)/);
+      if (m) lang = m[1];
+    }
+
+    var block = document.createElement("div");
+    block.className = "code-block";
+    pre.parentNode.insertBefore(block, pre);
+
+    var header = document.createElement("div");
+    header.className = "code-header";
+
+    var label = document.createElement("span");
+    label.className = "code-lang";
+    label.textContent = lang || "code";
+
     var btn = document.createElement("button");
     btn.className = "copy-btn";
     btn.textContent = "复制";
@@ -47,7 +66,11 @@
       var code = pre.querySelector("code");
       copyText((code || pre).textContent, btn);
     });
-    pre.appendChild(btn);
+
+    header.appendChild(label);
+    header.appendChild(btn);
+    block.appendChild(header);
+    block.appendChild(pre);
   });
 
   // ---- 移动端导航 ----

@@ -1,0 +1,48 @@
+/* ============================================================
+   Rouge 语法高亮配色 —— 暖深色（与站点代码块底色 #1c1917 配套）
+   覆盖 kramdown 默认的 language-* highlighter-rouge 结构
+   ============================================================ */
+
+/* 基础色：柔和暖白，保证未命中的 token 也协调 */
+.highlight,
+.highlight code,
+.highlight pre { color: #e7e0d6; background: transparent; }
+
+/* 注释 */
+.highlight .c, .highlight .cm, .highlight .c1, .highlight .cs, .highlight .cp { color: #78716c; font-style: italic; }
+
+/* 关键字 / 声明 */
+.highlight .k, .highlight .kc, .highlight .kd, .highlight .kn, .highlight .kp, .highlight .kr, .highlight .kt { color: #f97316; }
+
+/* 字符串 */
+.highlight .s, .highlight .s1, .highlight .s2, .highlight .sb, .highlight .sc, .highlight .sd,
+.highlight .se, .highlight .sh, .highlight .si, .highlight .sr, .highlight .sx, .highlight .ss { color: #86efac; }
+
+/* 数字 / 常量 */
+.highlight .m, .highlight .mi, .highlight .mf, .highlight .mh, .highlight .mo, .highlight .il { color: #fbbf24; }
+
+/* 函数 / 方法名 */
+.highlight .nf, .highlight .fm, .highlight .na { color: #7dd3fc; }
+
+/* 类型 / 类名 / 内置 */
+.highlight .nc, .highlight .no, .highlight .nd, .highlight .ni, .highlight .ne, .highlight .nn { color: #c4b5fd; }
+.highlight .nb, .highlight .bp { color: #c4b5fd; }
+
+/* 变量 */
+.highlight .nv, .highlight .vc, .highlight .vg, .highlight .vi { color: #fca5a5; }
+
+/* 操作符 / 标点 */
+.highlight .o, .highlight .ow { color: #fdba74; }
+.highlight .p { color: #a8a095; }
+
+/* 标签 / 属性（toml、html 等） */
+.highlight .nt { color: #f97316; }
+.highlight .nl { color: #7dd3fc; }
+
+/* diff / 错误 */
+.highlight .gd { color: #fca5a5; background: rgba(239, 68, 68, .12); }
+.highlight .gi { color: #86efac; background: rgba(34, 197, 94, .12); }
+.highlight .err, .highlight .gr { color: #fca5a5; }
+
+/* 行号（若启用） */
+.highlight .lineno { color: #57534e; user-select: none; }

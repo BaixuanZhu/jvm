@@ -251,14 +251,28 @@ a:hover { text-decoration: underline; }
 .docs-content code { font-family: var(--font-mono); font-size: .86em; background: #fdf0e7; color: var(--accent); padding: 2px 7px; border-radius: 5px; }
 .docs-content pre {
   background: var(--code-bg); border: 1px solid #34302b; border-radius: 10px;
-  padding: 16px 20px; overflow-x: auto; margin: 14px 0; position: relative;
+  padding: 16px 20px; overflow-x: auto; margin: 16px 0;
+  font-size: .88rem;
 }
-.docs-content pre code { background: none; color: #e7e0d6; padding: 0; font-size: .88rem; line-height: 1.7; }
+.docs-content pre code { background: none; color: #e7e0d6; padding: 0; font-size: inherit; line-height: 1.75; }
 .docs-content hr { border: 0; border-top: 1px solid var(--border); margin: 36px 0; }
 
-/* 文档代码块复制按钮 */
-.docs-content pre .copy-btn { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity .15s; }
-.docs-content pre:hover .copy-btn { opacity: 1; }
+/* 带顶栏的代码块（JS 自动包装：语言标签 + 常驻复制按钮） */
+.code-block {
+  background: var(--code-bg); border: 1px solid #34302b;
+  border-radius: 10px; margin: 16px 0; overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.code-block pre { margin: 0; border: 0; border-radius: 0; background: transparent; }
+.code-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 14px; background: #292520; border-bottom: 1px solid #34302b;
+}
+.code-lang {
+  font-family: var(--font-mono); font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: #a8a095; user-select: none;
+}
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 860px) {
