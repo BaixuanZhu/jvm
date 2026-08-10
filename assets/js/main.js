@@ -47,6 +47,8 @@
       var m = wrapper.className.match(/language-([a-zA-Z0-9+#-]+)/);
       if (m) lang = m[1];
     }
+    // 无语言的纯文本块统一显示 TEXT
+    if (!lang || lang === "plaintext" || lang === "text") lang = "text";
 
     var block = document.createElement("div");
     block.className = "code-block";
