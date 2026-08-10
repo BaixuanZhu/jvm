@@ -18,6 +18,8 @@ permalink: pretty
 # 仓库信息（seo-tag 与页面内链接使用）
 github_repo: https://github.com/BaixuanZhu/jvm
 github_releases: https://github.com/BaixuanZhu/jvm/releases/latest
+# 最新版安装包直链（releases/latest/download/<资产名> 永远指向最新 Release 的对应文件）
+download_setup: https://github.com/BaixuanZhu/jvm/releases/latest/download/jvm-windows-amd64-setup.exe
 
 plugins:
   - jekyll-seo-tag

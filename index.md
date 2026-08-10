@@ -19,7 +19,7 @@ title: 首页
     </div>
 
     <div class="hero-actions">
-      <a class="btn btn-primary" href="{{ site.github_releases }}" target="_blank" rel="noopener">下载安装包</a>
+      <a class="btn btn-primary" href="{{ site.download_setup }}">下载安装包</a>
       <a class="btn btn-ghost" href="{{ site.github_repo }}" target="_blank" rel="noopener">GitHub ★</a>
     </div>
   </div>
