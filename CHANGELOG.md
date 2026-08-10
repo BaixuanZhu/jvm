@@ -7,6 +7,30 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-10
+
+### 新增
+- 发行产物新增 windows/arm64 架构: CI 打 tag 时同时产出
+  `jvm-windows-arm64-setup.exe` 与 `jvm-windows-arm64.zip`
+  (安装器 stub 为 x86, 在 ARM64 Windows 上靠系统内置模拟运行,
+  释放出的 jvm.exe 为 ARM64 原生)。本地交叉编译用 `make build GOARCH=arm64`,
+  构建产物改为按架构分目录存放 (`dist/<arch>/jvm.exe`)。
+- `install.ps1` 一键安装脚本自动检测系统架构 (x64 / ARM64),
+  下载匹配架构的便携 zip。
+- ARM64 版 jvm 默认下载 ARM64 (aarch64) 的 JDK (此前默认 x64, 需手动配置)。
+- Microsoft Build of OpenJDK 支持下载 Windows ARM64 (aarch64) 构建
+  (11/17/21/25 全部 LTS; aka.ms 短链与 SHA256 旁路校验模式与 x64 一致)。
+- `arch` 配置接受别名: `amd64`→`x64`、`arm64`→`aarch64` (统一走
+  `app.NormArch` 规范化, 各 provider 行为一致)。
+
+### 变更
+- Provider 层新增 `Configurable` 可选接口与 `provider.ConfigureAll` 统一分发
+  全局下载配置 (目标架构/镜像): provider 实现该接口即自动接入,
+  main.go 不再显式认识具体发行版适配器。
+- `arch=aarch64` 时使用 Corretto 会明确报错并建议改用 temurin / microsoft
+  (Amazon Corretto 官方没有 Windows ARM64 构建; 此前会静默下载 x64 版
+  靠系统模拟运行, 用户无感知)。
+
 ## [0.7.0] - 2026-08-08
 
 ### 新增

@@ -45,7 +45,7 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -O
 
 ### 方式一：安装包
 
-从 [Releases](https://github.com/BaixuanZhu/jvm/releases) 下载 `jvm-windows-amd64-setup.exe`，双击安装。安装器会：
+从 [Releases](https://github.com/BaixuanZhu/jvm/releases) 按设备架构下载安装器（x64 设备用 `jvm-windows-amd64-setup.exe`，ARM64 设备用 `jvm-windows-arm64-setup.exe`），双击安装。安装器会：
 
 1. 把 `jvm.exe` 放到 `%LOCALAPPDATA%\Programs\jvm`（用户级，无需管理员）
 2. 运行一次 jvm，自动配置 PATH 和 shell 集成
@@ -55,7 +55,7 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -O
 
 ### 方式二：便携版
 
-从 Releases 下载 `jvm-windows-amd64.zip`，解压出 `jvm.exe` 放到任意目录，运行一次（比如 `jvm version`）它会自动：
+从 Releases 按设备架构下载便携 zip（`jvm-windows-amd64.zip` 或 `jvm-windows-arm64.zip`），解压出 `jvm.exe` 放到任意目录，运行一次（比如 `jvm version`）它会自动：
 
 1. 把自己所在目录加入用户 PATH
 2. 把 shell 集成函数静默写入 PowerShell `$PROFILE` 和 `~/.bashrc`
@@ -141,15 +141,23 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 
 ## 配置文件（可选）
 
-jvm 默认用清华镜像源下载、安装 `x64` 架构的 JDK。如需更改，在 `~/.jvm/config.toml` 写：
+jvm 默认用清华镜像源下载 JDK，目标架构跟随 jvm 二进制本身（x64 版下 `x64` JDK，ARM64 版下 `aarch64` JDK）。如需更改，在 `~/.jvm/config.toml` 写：
 
 ```toml
-# 下载镜像源 (默认清华 TUNA)。海外用户可改成官方或其他镜像。
+# 下载镜像源 (默认清华 TUNA, 仅 Temurin 走镜像)。海外用户可改成官方或其他镜像。
 mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
 
-# 目标架构 (默认 x64)。Windows on ARM 设备用 aarch64。
+# 目标架构 (默认跟随 jvm 二进制架构; 也接受别名 amd64/arm64)。
 arch = "aarch64"
 ```
+
+各发行版的 Windows ARM64 (aarch64) 支持情况：
+
+| 发行版 | Windows ARM64 构建 | 说明 |
+|---|---|---|
+| Temurin | ⚠️ 部分版本有 | Adoptium 官方 Windows ARM64 覆盖不全（如 21 有、17/25 暂无，以 API 实际返回为准）；缺失版本查询时报错会带 `(windows/aarch64)` 上下文 |
+| Microsoft | ✅ 有 | 11 / 17 / 21 / 25 全部 LTS 均有 ARM64 构建 |
+| Corretto | ❌ 没有 | 官方未发布 Windows ARM64 构建；`arch=aarch64` 时安装/查询会明确报错并建议改用 Temurin / Microsoft |
 
 也可用环境变量临时覆盖（优先级高于配置文件），适合一次性切换：
 
@@ -165,9 +173,9 @@ jvm install 21
 
 `jvm upgrade` 通过 GitHub Release 更新 jvm 自身。使用前需配置：
 
-1. 在 GitHub 建仓库，打 tag（如 `v0.2.0`，必须以 `v` 开头）并推送。CI 会自动编译、打包、发布 Release，产出两个 asset：
-   - `jvm-windows-amd64-setup.exe`（安装器）
-   - `jvm-windows-amd64.zip`（便携版，`jvm upgrade` 拉这个，zip 里放单个 `jvm.exe`）
+1. 在 GitHub 建仓库，打 tag（如 `v0.2.0`，必须以 `v` 开头）并推送。CI 会自动编译、打包、发布 Release，按架构产出四类 asset：
+   - `jvm-windows-amd64-setup.exe` / `jvm-windows-arm64-setup.exe`（安装器）
+   - `jvm-windows-amd64.zip` / `jvm-windows-arm64.zip`（便携版，`jvm upgrade` 按当前二进制架构精确匹配拉取，zip 里放单个 `jvm.exe`）
 
 2. `internal/upgrade/upgrade.go` 里的常量已设为本仓库：
    ```go
@@ -195,10 +203,13 @@ jvm install 21
 
 ```powershell
 cd D:\code\jvm
-make build       # 编译 -> dist/jvm.exe
-make installer   # 打安装包 -> dist/jvm-windows-amd64-setup.exe (需 NSIS, scoop install nsis)
-make release     # 打便携 zip -> dist/jvm-windows-amd64.zip (供 jvm upgrade)
+make build       # 编译 -> dist/<arch>/jvm.exe (默认本机架构)
+make installer   # 打安装包 -> dist/jvm-windows-<arch>-setup.exe (需 NSIS, scoop install nsis)
+make release     # 打便携 zip -> dist/jvm-windows-<arch>.zip (供 jvm upgrade)
 make dist-all    # 同时产出安装器 + 便携 zip
+
+# 交叉编 ARM64: 上面任意命令加 GOARCH=arm64, 如
+make dist-all GOARCH=arm64
 ```
 
 > 打 tag（`git tag v0.1.0 && git push --tags`）会触发 GitHub Actions 自动编译并发 Release。
@@ -209,10 +220,10 @@ make dist-all    # 同时产出安装器 + 便携 zip
 |------|------|
 | `main.go` | 命令行入口和路由 |
 | `cmd/cmd.go` | 各子命令的实现 |
-| `internal/provider/` | Provider 抽象层（接口 + 注册表 + Base 基类） |
-| `internal/provider/temurin/` | Temurin (Adoptium) 适配器：API + 清华镜像 |
-| `internal/provider/corretto/` | Amazon Corretto 适配器：indexmap JSON |
-| `internal/provider/microsoft/` | Microsoft Build of OpenJDK 适配器：aka.ms 探测 |
+| `internal/provider/` | Provider 抽象层（接口 + 注册表 + Base 基类 + Configurable 配置分发） |
+| `internal/provider/temurin/` | Temurin (Adoptium) 适配器：API + 清华镜像（x64 / aarch64） |
+| `internal/provider/corretto/` | Amazon Corretto 适配器：indexmap JSON（仅 x64，官方无 ARM64 构建） |
+| `internal/provider/microsoft/` | Microsoft Build of OpenJDK 适配器：aka.ms 探测（x64 / aarch64） |
 | `internal/jdk/` | 下载、SHA256 校验、解压（原子替换） |
 | `internal/junction/` | junction 创建/删除/解析 (原生 syscall) |
 | `internal/env/` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
