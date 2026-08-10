@@ -203,7 +203,8 @@ jvm install 21
 
 ```powershell
 cd D:\code\jvm
-make build       # 编译 -> dist/<arch>/jvm.exe (默认本机架构)
+make build       # 编译 -> dist/<arch>/jvm.exe (默认本机架构; 开发构建, 启动不写 PATH/profile)
+make build-dist  # 发行风味构建 (保持启动自举, 供打包/验证安装流程用)
 make installer   # 打安装包 -> dist/jvm-windows-<arch>-setup.exe (需 NSIS, scoop install nsis)
 make release     # 打便携 zip -> dist/jvm-windows-<arch>.zip (供 jvm upgrade)
 make dist-all    # 同时产出安装器 + 便携 zip
@@ -211,6 +212,8 @@ make dist-all    # 同时产出安装器 + 便携 zip
 # 交叉编 ARM64: 上面任意命令加 GOARCH=arm64, 如
 make dist-all GOARCH=arm64
 ```
+
+> 开发构建（`make build` / `make run`）的二进制启动时**不会**把自身写进用户 PATH / shell profile，放心在开发目录里直接运行；任何构建都可用 `JVM_NO_BOOTSTRAP=1` 强制关闭自举。
 
 > 打 tag（`git tag v0.1.0 && git push --tags`）会触发 GitHub Actions 自动编译并发 Release。
 

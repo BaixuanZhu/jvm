@@ -37,9 +37,13 @@ func main() {
 	provider.ConfigureAll(cfg.Arch, cfg.Mirror)
 
 	// 静默自举: 把 jvm 自身目录加入 PATH + 安装 shell 集成 (首次运行, 幂等)
-	// 这样用户无需任何手动配置, 重开终端后 jvm use 即在当前终端即时生效
-	env.EnsureUserPath()
-	shell.EnsureIntegration()
+	// 这样用户无需任何手动配置, 重开终端后 jvm use 即在当前终端即时生效。
+	// 跳过场景 (见 app.BootstrapEnabled): 开发构建 (make build/run 注入 off)、
+	// JVM_NO_BOOTSTRAP 非空、自身位于系统 Temp 目录 (go run 临时二进制)。
+	if app.BootstrapEnabled() {
+		env.EnsureUserPath()
+		shell.EnsureIntegration()
+	}
 	// 把旧版 jvm 遗留的版本目录迁移到新的纯 semver 命名 (幂等, 首次升级时触发)
 	if err := junction.MigrateLegacyDirs(); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  版本目录迁移失败: %v\n", err)

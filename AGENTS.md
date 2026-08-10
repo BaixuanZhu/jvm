@@ -8,8 +8,8 @@
 
 需 Go 1.26+ 与 GNU Make（Git Bash / MinGW / WSL 自带）。
 
-- Build: `make build` → `dist/<arch>/jvm.exe`（`-trimpath -ldflags "-s -w"`；`GOARCH` 默认取本机 `go env GOARCH`，交叉编 ARM64 用 `make build GOARCH=arm64`）
-- Run: `make run ARGS="version"`（先 build 再运行）
+- Build: `make build` → `dist/<arch>/jvm.exe`（`-trimpath -ldflags "-s -w"`；`GOARCH` 默认取本机 `go env GOARCH`，交叉编 ARM64 用 `make build GOARCH=arm64`）。**开发构建注入 `Bootstrap=off`，产物启动不做静默自举**；发行风味用 `make build-dist`（`installer`/`release`/`dist-all` 自动走它）
+- Run: `make run ARGS="version"`（先 dev build 再运行，不污染环境）
 - Format / 静态检查: `make fmt` / `make vet`（即 `go fmt ./...` / `go vet ./...`）
 - Deps: `make tidy`
 - 安装包: `make installer` → `dist/jvm-windows-<arch>-setup.exe`（需 NSIS：`scoop install nsis` 或 `choco install nsis`）
@@ -78,9 +78,8 @@
 - **测试覆盖**：纯函数表驱动单测（`app` / `asset` / `junction` / `provider` 及各 provider 子包 / `cmd` / `config` / `doctor` / `jdk` / `shell` / `upgrade` / `updatecheck` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流、doctor 各项诊断（临时目录 + 注入值隔离）等逻辑；junction 创建/真实网络请求等 Windows 耦合路径暂无单测，改动时注意人工验证。
 - **CMD（cmd.exe）不支持** shell 自动集成（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口。
 - `make installer` 依赖 NSIS；release workflow 用 `choco install nsis` 后需显式把 `C:\Program Files (x86)\NSIS` 写入 `GITHUB_PATH`（choco 不自动刷新 job PATH）。
-- `jvm` 每次启动**静默自举**：把自身目录加入用户 PATH 并补全 shell 集成（幂等）——调试时留意首次运行的副作用。**特别注意：在开发目录运行 `make build` / `make run` / `.\dist\jvm.exe` 时，这个开发版本也会执行自举，把 `D:\code\jvm\dist\jvm.exe` 写入 `$PROFILE` / `~/.bashrc` 的 wrapper，从而覆盖已安装的全局 `jvm`。一旦 `dist\jvm.exe` 被 `make clean` 或未 build，所有新终端里 `jvm` 命令都会报找不到文件。**
-  - 开发测试时，优先直接调用构建产物：`.\dist\jvm.exe version`（PowerShell）或 `./dist/jvm.exe version`（bash），避免让开发版注册到全局 profile。
-  - 若已被污染，打开 `notepad $PROFILE`（PowerShell）或编辑 `~/.bashrc`（bash），删除或修改指向 `D:\code\jvm\dist\jvm.exe` 的 `jvm` wrapper 函数，使其指回真实安装路径（如 `D:\Program Files\jvm\jvm.exe`），或直接删除 wrapper 让 `jvm` 回退到 PATH 解析。
-  - 同时检查注册表 `HKCU\Environment\PATH` 是否残留 `D:\code\jvm`、`D:\code\jvm\dist` 等开发目录，按需手动清理并广播 `WM_SETTINGCHANGE`（或重新登录）。
+- `jvm` 启动自举（把自身目录加入用户 PATH + 补全 shell 集成，幂等）**默认仅发行构建执行**。三层关闭机制（见 `internal/app/bootstrap.go` 的 `BootstrapEnabled`）：`make build`/`make run` 的开发产物经 ldflags 注入 `Bootstrap=off`；`JVM_NO_BOOTSTRAP` 环境变量非空；自身 exe 位于系统 Temp 目录（覆盖 `go run` 的 `Temp\go-build*\b001\exe` 临时二进制）。`make build-dist`/`installer`/`release` 产物与直接 `go build` 源码的二进制保持自举。
+  - 开发调试放心跑 `./dist/<arch>/jvm.exe ...`，不会污染全局 `jvm`。
+  - 历史污染清理：编辑 `$PROFILE` / `~/.bashrc` 删除指向开发路径的 `jvm` wrapper；检查注册表 `HKCU\Environment\PATH` 残留的开发/Temp 目录条目，清理后广播 `WM_SETTINGCHANGE`（或重新登录）。
 - 构建产物输出到 `dist/`（已在 `.gitignore`）；不要把二进制提交进仓库。
 - **版本目录命名无 arch 维度**：`~/.jvm/versions/` 目录名是 `{distro}-{ReleaseName}`（如 `temurin-21.0.5+11`），不含目标架构。同一台机器上先 `arch=x64` 再 `arch=aarch64` 装同一发行版同一版本会撞名（相同版本号 → 判定"已安装"跳过；不同 patch → 两个目录但 `use` 只匹配其一）。属已知限制：跨架构并存是极边缘场景，而目录名加 arch 会连锁影响 junction 匹配 / `MigrateLegacyDirs` / doctor，故不做。

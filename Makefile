@@ -16,18 +16,30 @@ GO       := go
 # 产物按架构分目录存放 (dist/<arch>/jvm.exe), 避免双架构构建互相覆盖。
 GOARCH   ?= $(shell $(GO) env GOARCH)
 LDFLAGS  := -s -w -X jvm/internal/app.Version=$(VERSION)
+# 开发构建额外注入 Bootstrap=off: dist/ 下的开发版启动时不做静默自举
+# (不写用户 PATH / shell profile), 避免污染环境; 发行构建 (build-dist) 不带此项。
+LDFLAGS_DEV := $(LDFLAGS) -X jvm/internal/app.Bootstrap=off
 TARGET   := $(DIST)/$(GOARCH)/$(BINARY).exe
 
 # ---- 默认目标 ----
 .PHONY: all
 all: build
 
-# ---- 构建 ----
+# ---- 构建 (开发用: 关闭启动自举, 不污染 PATH/profile) ----
 # -trimpath 去掉本机路径, -ldflags "-s -w" 去掉调试符号缩小体积
 # GOOS 固定 windows (项目仅支持 Windows), GOARCH 可传 arm64 交叉编译
 .PHONY: build
 build:
-	@echo "[build] $(TARGET) (v$(VERSION), windows/$(GOARCH))..."
+	@echo "[build] $(TARGET) (v$(VERSION), windows/$(GOARCH), dev: 不自举)..."
+	@mkdir -p $(DIST)/$(GOARCH)
+	GOOS=windows GOARCH=$(GOARCH) $(GO) build -trimpath -ldflags "$(LDFLAGS_DEV)" -o $(TARGET) .
+	@echo "[ok]   $(TARGET)"
+	@ls -lh $(TARGET) | awk '{print "       size:", $$5}'
+
+# ---- 构建 (发行风味: 保持启动自举, 供 installer/release 打包与 CI 使用) ----
+.PHONY: build-dist
+build-dist:
+	@echo "[build-dist] $(TARGET) (v$(VERSION), windows/$(GOARCH))..."
 	@mkdir -p $(DIST)/$(GOARCH)
 	GOOS=windows GOARCH=$(GOARCH) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(TARGET) .
 	@echo "[ok]   $(TARGET)"
@@ -63,7 +75,7 @@ vet:
 # 安装器 stub 是 x86 的, 在 ARM64 Windows 上靠系统内置模拟运行,
 # 释放出来的 jvm.exe 仍是目标架构原生二进制。
 .PHONY: installer
-installer: build
+installer: build-dist
 	@echo "[installer] building setup exe (v$(VERSION), $(GOARCH))..."
 	makensis /DAPP_VERSION=$(VERSION) /DAPP_ARCH=$(GOARCH) installer/jvm.nsi
 	@echo "[ok]   $(DIST)/$(BINARY)-windows-$(GOARCH)-setup.exe"
@@ -72,7 +84,7 @@ installer: build
 # 产物 dist/jvm-windows-$(GOARCH).zip (内含单个 jvm.exe, 供 jvm upgrade 精确匹配拉取)
 # 用 PowerShell Compress-Archive, 不依赖 zip 命令 (Windows / CI 都自带 PowerShell)
 .PHONY: release
-release: build
+release: build-dist
 	@powershell -NoProfile -Command "Compress-Archive -Path $(DIST)\$(GOARCH)\$(BINARY).exe -DestinationPath $(DIST)\$(BINARY)-windows-$(GOARCH).zip -Force"
 	@echo "[release] $(DIST)/$(BINARY)-windows-$(GOARCH).zip"
 	@echo "          上传到 GitHub Release (tag: v$(VERSION)) 后即可用 jvm upgrade 自更新"
@@ -87,8 +99,9 @@ dist-all: installer release
 .PHONY: help
 help:
 	@echo "jvm build targets:"
-	@echo "  make build                    build to $(DIST)/<arch>/$(BINARY).exe (GOARCH=arm64 交叉编 ARM64)"
-	@echo "  make run ARGS=\"version\"        build and run"
+	@echo "  make build                    dev build (no bootstrap) -> $(DIST)/<arch>/$(BINARY).exe"
+	@echo "  make build-dist               release-flavor build (bootstrap on)"
+	@echo "  make run ARGS=\"version\"        dev build and run (GOARCH=arm64 交叉编 ARM64)"
 	@echo "  make installer                build NSIS setup -> $(DIST)/$(BINARY)-windows-<arch>-setup.exe"
 	@echo "  make release                  build portable zip -> $(DIST)/$(BINARY)-windows-<arch>.zip"
 	@echo "  make dist-all                 build both release assets (current GOARCH)"

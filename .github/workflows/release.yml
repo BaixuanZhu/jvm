@@ -34,9 +34,10 @@ jobs:
 
       - name: Build jvm.exe (amd64 + arm64)
         # 双架构顺序构建, 产物分别落在 dist/amd64/ 与 dist/arm64/
+        # 用 build-dist (发行风味, 保持启动自举); make build 是开发构建, 自举关闭
         run: |
-          make build VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=amd64
-          make build VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=arm64
+          make build-dist VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=amd64
+          make build-dist VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=arm64
 
       - name: Install NSIS
         shell: pwsh

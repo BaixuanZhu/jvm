@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 新增
+- 本地开发构建不再污染环境: `make build` / `make run` 产物经 ldflags 注入
+  `Bootstrap=off`, 启动时不写用户 PATH / shell profile (发行风味用
+  `make build-dist`, `installer`/`release`/`dist-all` 自动走它); 任何构建可用
+  `JVM_NO_BOOTSTRAP=1` 强制关闭自举; 自身位于系统 Temp 目录 (如 `go run` 的
+  临时二进制) 时亦自动跳过自举。
+
 ## [0.8.0] - 2026-08-10
 
 ### 新增
