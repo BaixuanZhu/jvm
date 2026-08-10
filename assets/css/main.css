@@ -140,6 +140,9 @@ a:hover { text-decoration: underline; }
 .copy-btn.copied { color: #166534; border-color: #166534; }
 
 .hero-actions { margin-top: 30px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.hero-note { margin-top: 14px; color: var(--text-dim); font-size: .85rem; }
+.hero-note a { color: var(--accent); text-decoration: none; }
+.hero-note a:hover { text-decoration: underline; }
 
 /* Hero 双栏：左文案右终端（桌面端） */
 .hero-split { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }

@@ -4,6 +4,18 @@ description: jvm 各版本变更记录。
 layout: docs
 ---
 
+## [0.8.0] - 2026-08-10
+
+### 新增
+- **jvm 自身发行 Windows ARM64 版本**：`jvm-windows-arm64-setup.exe` 与 `jvm-windows-arm64.zip`（安装向导界面为 x86 模拟运行，释放出的 jvm.exe 是 ARM64 原生）；一键安装脚本自动识别 x64 / ARM64。
+- ARM64 版 jvm 默认下载 ARM64 (aarch64) 版 JDK（此前默认 x64，需手动配置）。
+- Microsoft Build of OpenJDK 支持下载 Windows ARM64 构建（11/17/21/25 全部 LTS）。
+- `arch` 配置接受别名：`amd64`→`x64`、`arm64`→`aarch64`。
+
+### 变更
+- Provider 层新增 `Configurable` 可选接口与统一配置分发：新增发行版适配器实现接口即自动接入目标架构/镜像配置。
+- `arch=aarch64` 时使用 Corretto 会明确报错并建议改用 Temurin / Microsoft（Corretto 官方没有 Windows ARM64 构建；此前会静默下载 x64 版靠系统模拟运行）。
+
 ## [0.7.0] - 2026-08-08
 
 ### 新增

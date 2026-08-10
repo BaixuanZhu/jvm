@@ -23,15 +23,23 @@ description: jvm 的配置文件、目录结构与切换原理。
 
 ## 配置文件（可选）
 
-jvm 默认用清华镜像源下载、安装 `x64` 架构的 JDK。如需更改，在 `~/.jvm/config.toml` 写：
+jvm 默认用清华镜像源下载 JDK，**目标架构跟随 jvm 二进制本身**（x64 版下 `x64` JDK，ARM64 版下 `aarch64` JDK）。如需更改，在 `~/.jvm/config.toml` 写：
 
 ```toml
-# 下载镜像源（默认清华 TUNA）。海外用户可改成官方或其他镜像。
+# 下载镜像源（默认清华 TUNA，仅 Temurin 走镜像）。海外用户可改成官方或其他镜像。
 mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
 
-# 目标架构（默认 x64）。Windows on ARM 设备用 aarch64。
+# 目标架构（默认跟随 jvm 二进制架构；也接受别名 amd64 / arm64）。
 arch = "aarch64"
 ```
+
+各发行版的 Windows ARM64 构建支持：
+
+| 发行版 | Windows ARM64 | 说明 |
+|--------|---------------|------|
+| Temurin | ⚠️ 部分版本 | Adoptium 官方覆盖不全（如 21 有、17/25 暂无），以实际查询为准 |
+| Microsoft | ✅ 全部 LTS | 11 / 17 / 21 / 25 均有 ARM64 构建 |
+| Corretto | ❌ 没有 | 官方未发布；`arch=aarch64` 时会明确报错并建议改用 Temurin / Microsoft |
 
 也可用环境变量临时覆盖（优先级高于配置文件）：
 

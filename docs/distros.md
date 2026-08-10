@@ -5,11 +5,13 @@ description: jvm 支持的 JDK 发行版与 distro@version 语法说明。
 
 jvm 用 `[distro@]version` 语法选择发行版，**省略前缀默认 Temurin**。
 
-| 发行版 | 前缀 | 数据源 | 下载通道 | 备注 |
-|--------|------|--------|----------|------|
-| Temurin (Adoptium) | `temurin`（可省略） | Adoptium API | 清华镜像优先 → 官方 CDN 回退 | 默认推荐 |
-| Amazon Corretto | `corretto` | corretto-downloads indexmap | 直连 CloudFront CDN | 附带官方 SHA256 清单 |
-| Microsoft Build of OpenJDK | `microsoft` | aka.ms 探测 | 直连 VisualStudio CDN | 仅 LTS 版本 |
+| 发行版 | 前缀 | 数据源 | 下载通道 | Windows ARM64 | 备注 |
+|--------|------|--------|----------|---------------|------|
+| Temurin (Adoptium) | `temurin`（可省略） | Adoptium API | 清华镜像优先 → 官方 CDN 回退 | ⚠️ 部分版本（如 21 有、17/25 暂无） | 默认推荐 |
+| Amazon Corretto | `corretto` | corretto-downloads indexmap | 直连 CloudFront CDN | ❌ 官方未发布 | 附带官方 SHA256 清单 |
+| Microsoft Build of OpenJDK | `microsoft` | aka.ms 探测 | 直连 VisualStudio CDN | ✅ 全部 LTS | 仅 LTS 版本 |
+
+ARM64 设备上 jvm 默认下载 ARM64 (aarch64) 版 JDK；选择 Corretto 时会明确报错并建议改用 Temurin / Microsoft。也可在 `~/.jvm/config.toml` 用 `arch` 显式指定目标架构（见配置页）。
 
 ## 用法示例
 

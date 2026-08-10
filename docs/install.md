@@ -13,7 +13,7 @@ PowerShell 里执行一行命令：
 iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" | iex
 ```
 
-脚本会自动下载最新 Release、校验 SHA256、解压到 `%LOCALAPPDATA%\Programs\jvm`，并运行一次 jvm 完成自举（注册用户 PATH + 注入 shell 集成）。装完**重开一次终端**即可使用。
+脚本会**自动检测系统架构（x64 / ARM64）**、下载匹配的最新 Release、校验 SHA256、解压到 `%LOCALAPPDATA%\Programs\jvm`，并运行一次 jvm 完成自举（注册用户 PATH + 注入 shell 集成）。装完**重开一次终端**即可使用。
 
 想自定义安装目录，把脚本下到本地再传参：
 
@@ -26,7 +26,12 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -O
 
 ## 方式一：安装包
 
-从 [Releases]({{ site.github_releases }}) 下载 `jvm-windows-amd64-setup.exe`，双击安装。安装器会：
+从 [Releases]({{ site.github_releases }}) 按设备架构下载安装器，双击安装：
+
+- x64 设备：`jvm-windows-amd64-setup.exe`（[直链]({{ site.download_setup }})）
+- ARM64 设备：`jvm-windows-arm64-setup.exe`（[直链]({{ site.download_setup_arm64 }})）
+
+安装器会：
 
 1. 把 `jvm.exe` 放到 `%LOCALAPPDATA%\Programs\jvm`（用户级，无需管理员）
 2. 运行一次 jvm，自动配置 PATH 和 shell 集成
@@ -34,9 +39,11 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -O
 
 装完**重开一次终端**即可使用。
 
+> ARM64 安装器的安装向导本身是 x86 界面（靠系统内置模拟运行），释放出的 `jvm.exe` 是 ARM64 原生二进制。
+
 ## 方式二：便携版
 
-从 Releases 下载 `jvm-windows-amd64.zip`，解压出 `jvm.exe` 放到任意目录，运行一次（比如 `jvm version`）它会自动：
+从 Releases 按设备架构下载便携 zip（`jvm-windows-amd64.zip` 或 `jvm-windows-arm64.zip`），解压出 `jvm.exe` 放到任意目录，运行一次（比如 `jvm version`）它会自动：
 
 1. 把自己所在目录加入用户 PATH
 2. 把 shell 集成函数静默写入 PowerShell `$PROFILE` 和 `~/.bashrc`

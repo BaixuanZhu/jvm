@@ -7,7 +7,7 @@ title: 首页
 <section class="hero">
   <div class="container hero-split">
     <div class="hero-text">
-      <span class="hero-badge">开源 · MIT · Windows x64 / ARM64</span>
+      <span class="hero-badge">开源 · MIT · Windows x64 / ARM64 原生</span>
       <h1>Windows 上的<br><span class="grad">Java 版本管理器</span></h1>
       <p class="hero-sub">
         类似 nvm-windows / jabba 的 JDK 版本管理工具。
@@ -23,6 +23,7 @@ title: 首页
         <a class="btn btn-primary" href="{{ site.download_setup }}">下载安装包</a>
         <a class="btn btn-ghost" href="{{ site.github_repo }}" target="_blank" rel="noopener">GitHub ★</a>
       </div>
+      <p class="hero-note">安装脚本自动识别 x64 / ARM64；ARM64 设备也可<a href="{{ site.download_setup_arm64 }}">下载 ARM64 安装包</a>。</p>
     </div>
 
     <!-- 无 JS / 减弱动效时显示静态内容；否则替换为打字动画 -->
@@ -105,7 +106,8 @@ title: 首页
       </div>
     </div>
 
-    <p class="distro-note fade-in">精确版本同样支持：<code>jvm install 21.0.12+8</code></p>
+    <p class="distro-note fade-in">精确版本同样支持：<code>jvm install 21.0.12+8</code><br>
+    ARM64 设备自动下载 ARM64 版 JDK（Temurin / Microsoft；Corretto 官方暂无 Windows ARM64 构建）。</p>
   </div>
 </section>
 
