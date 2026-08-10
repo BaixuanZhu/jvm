@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"jvm/internal/paths"
@@ -44,13 +45,23 @@ func clearJVMEnv(t *testing.T) {
 	}
 }
 
+// wantDefaultArch 独立推导"默认 arch 应为何值", 与被测的 defaultArch 互验映射:
+// 期望值按 runtime.GOARCH 在测试侧重新映射一遍, 而不是直接调 defaultArch()
+// (否则测试变成自己比自己, 失去意义)。同时保证 ARM64 机器上跑测试不会误失败。
+func wantDefaultArch() string {
+	if runtime.GOARCH == "arm64" {
+		return "aarch64"
+	}
+	return "x64"
+}
+
 func TestDefault(t *testing.T) {
 	d := Default()
 	if d.Mirror == "" {
 		t.Error("默认 mirror 不应为空")
 	}
-	if d.Arch != "x64" {
-		t.Errorf("默认 arch 应为 x64, got %q", d.Arch)
+	if d.Arch != wantDefaultArch() {
+		t.Errorf("默认 arch 应为 %s, got %q", wantDefaultArch(), d.Arch)
 	}
 }
 
@@ -62,8 +73,8 @@ func TestLoadConfigFileMissing(t *testing.T) {
 	if cfg.Mirror != Default().Mirror {
 		t.Errorf("缺失文件时 mirror 应为默认值, got %q", cfg.Mirror)
 	}
-	if cfg.Arch != "x64" {
-		t.Errorf("缺失文件时 arch 应为 x64, got %q", cfg.Arch)
+	if cfg.Arch != wantDefaultArch() {
+		t.Errorf("缺失文件时 arch 应为默认值 %s, got %q", wantDefaultArch(), cfg.Arch)
 	}
 }
 
@@ -97,8 +108,8 @@ func TestLoadConfigFilePartial(t *testing.T) {
 	if cfg.Mirror != "https://only.mirror/Adoptium" {
 		t.Errorf("mirror 应取文件值, got %q", cfg.Mirror)
 	}
-	if cfg.Arch != "x64" {
-		t.Errorf("arch 应回退默认 x64, got %q", cfg.Arch)
+	if cfg.Arch != wantDefaultArch() {
+		t.Errorf("arch 应回退默认值 %s, got %q", wantDefaultArch(), cfg.Arch)
 	}
 }
 
@@ -111,8 +122,8 @@ func TestLoadConfigFileInvalid(t *testing.T) {
 	if cfg.Mirror != Default().Mirror {
 		t.Errorf("非法文件应回退默认 mirror, got %q", cfg.Mirror)
 	}
-	if cfg.Arch != "x64" {
-		t.Errorf("非法文件应回退默认 x64, got %q", cfg.Arch)
+	if cfg.Arch != wantDefaultArch() {
+		t.Errorf("非法文件应回退默认值 %s, got %q", wantDefaultArch(), cfg.Arch)
 	}
 }
 

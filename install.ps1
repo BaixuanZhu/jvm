@@ -6,7 +6,7 @@
     Downloads the latest Release's portable zip, verifies SHA256, extracts to a
     user directory, and runs jvm.exe once to trigger its built-in self-bootstrap
     (registers user PATH + injects PowerShell/bash shell integration).
-    Behavior mirrors the NSIS installer (installer/jvm.nsi). Windows x64 only.
+    Behavior mirrors the NSIS installer (installer/jvm.nsi). Windows x64 / ARM64.
 
     NOTE: Script output is intentionally English. Under `iwr | iex` the response
     body is decoded by the host's default code page; a UTF-8 BOM would be treated
@@ -85,16 +85,33 @@ try {
 
     # ---- 1. Environment check ------------------------------------------------
     if (-not [System.Environment]::Is64BitOperatingSystem) {
-        throw 'This system is not 64-bit Windows. jvm supports Windows x64 only.'
+        throw 'This system is not 64-bit Windows. jvm supports Windows x64 / ARM64 only.'
+    }
+
+    # Detect the OS CPU arch to pick the matching asset (amd64 / arm64).
+    # RuntimeInformation.OSArchitecture reports the real OS arch even from an
+    # emulated x64 process on ARM64 Windows; PROCESSOR_ARCHITECTURE (which an
+    # emulated process sees as AMD64/x86) is only the fallback for old .NET.
+    $osArch = $null
+    try {
+        $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    } catch {
+        $osArch = $env:PROCESSOR_ARCHITECTURE
+    }
+    switch -Regex ($osArch) {
+        '^(X64|AMD64)$'   { $assetArch = 'amd64' }
+        '^(Arm64|ARM64)$' { $assetArch = 'arm64' }
+        default { throw "Unsupported CPU architecture: $osArch. jvm supports Windows x64 / ARM64 only." }
     }
 
     # ---- 2. Resolve download source ------------------------------------------
     $base = if ($env:JVM_INSTALLER_MIRROR) { $env:JVM_INSTALLER_MIRROR.TrimEnd('/') + '/' } else { 'https://github.com/BaixuanZhu/jvm/releases/latest/download/' }
-    $zipName = 'jvm-windows-amd64.zip'
+    $zipName = "jvm-windows-$assetArch.zip"
     $checksumName = 'checksums.txt'
     $zipUrl = $base + $zipName
     $checksumUrl = $base + $checksumName
     Write-Info "Source: $base"
+    Write-Info "Arch:   $assetArch (OS: $osArch)"
 
     # ---- 3. Prepare working directory ----------------------------------------
     $workDir = Join-Path $env:TEMP ("jvm-install-" + [guid]::NewGuid().ToString('N'))

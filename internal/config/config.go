@@ -2,7 +2,7 @@
 //
 // 配置项 (首期覆盖):
 //   - mirror: 下载镜像源 (默认清华 TUNA)
-//   - arch:   目标架构 (默认 x64, 可选 aarch64)
+//   - arch:   目标架构 (默认跟随当前二进制: amd64 版 → x64, arm64 版 → aarch64)
 //
 // 优先级: 环境变量 (JVM_MIRROR / JVM_ARCH) > 配置文件 > 默认值。
 // 配置文件缺失视为正常 (返回默认值); 解析失败打印警告并回退默认。
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -29,8 +30,18 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Mirror: "https://mirrors.tuna.tsinghua.edu.cn/Adoptium",
-		Arch:   "x64",
+		Arch:   defaultArch(),
 	}
+}
+
+// defaultArch 返回当前二进制对应的默认 JDK 目标架构:
+// ARM64 版 jvm 默认下载 ARM64 (aarch64) JDK, 其余 (amd64) 默认 x64。
+// 注意: 目前仅 temurin provider 消费该值, corretto / microsoft 仍固定 x64。
+func defaultArch() string {
+	if runtime.GOARCH == "arm64" {
+		return "aarch64"
+	}
+	return "x64"
 }
 
 // configPath 返回配置文件路径: ~/.jvm/config.toml

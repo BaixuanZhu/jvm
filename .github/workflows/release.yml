@@ -1,7 +1,9 @@
 # 打 tag (v0.1.0) 时自动编译, 产出安装器 + 便携 zip, 发 GitHub Release
-# 产物:
+# 产物 (amd64 / arm64 双架构, 单 job 顺序构建):
 #   jvm-windows-amd64-setup.exe   双击安装器 (给新用户)
+#   jvm-windows-arm64-setup.exe   ARM64 双击安装器 (stub 为 x86, 释放 ARM64 原生 jvm.exe)
 #   jvm-windows-amd64.zip         便携版 (供 jvm upgrade 精确匹配拉取)
+#   jvm-windows-arm64.zip         ARM64 便携版 (ARM64 版 jvm 自更新拉这个)
 
 name: release
 
@@ -30,8 +32,11 @@ jobs:
         shell: bash
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build jvm.exe
-        run: make build VERSION=${{ steps.ver.outputs.VERSION }}
+      - name: Build jvm.exe (amd64 + arm64)
+        # 双架构顺序构建, 产物分别落在 dist/amd64/ 与 dist/arm64/
+        run: |
+          make build VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=amd64
+          make build VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=arm64
 
       - name: Install NSIS
         shell: pwsh
@@ -52,19 +57,23 @@ jobs:
         shell: pwsh
         run: makensis /VERSION
 
-      - name: Build installer
-        run: make installer VERSION=${{ steps.ver.outputs.VERSION }}
+      - name: Build installer (amd64 + arm64)
+        run: |
+          make installer VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=amd64
+          make installer VERSION=${{ steps.ver.outputs.VERSION }} GOARCH=arm64
 
-      - name: Build portable zip
+      - name: Build portable zip (amd64 + arm64)
         # windows-latest 自带 zip (来自 Git), make release 直接用
-        run: make release
+        run: |
+          make release GOARCH=amd64
+          make release GOARCH=arm64
 
       - name: Generate checksum
         # 生成 GNU coreutils sha256sum 格式的 checksums.txt, 供 jvm upgrade 校验下载完整性
         shell: bash
         run: |
           cd dist
-          sha256sum jvm-windows-amd64.zip > checksums.txt
+          sha256sum jvm-windows-amd64.zip jvm-windows-arm64.zip > checksums.txt
           echo "--- checksums.txt ---"
           cat checksums.txt
 
@@ -103,6 +112,8 @@ jobs:
           generate_release_notes: ${{ steps.notes.outputs.use_changelog != 'true' }}
           files: |
             dist/jvm-windows-amd64-setup.exe
+            dist/jvm-windows-arm64-setup.exe
             dist/jvm-windows-amd64.zip
+            dist/jvm-windows-arm64.zip
             dist/checksums.txt
             install.ps1

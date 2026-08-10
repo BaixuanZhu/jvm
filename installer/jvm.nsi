@@ -1,19 +1,23 @@
 ; jvm - NSIS installer for Windows
 ;
 ; Usage:
-;   makensis /DAPP_VERSION=0.1.0 installer/jvm.nsi
+;   makensis /DAPP_VERSION=0.1.0 [/DAPP_ARCH=arm64] installer/jvm.nsi
 ;
 ; Output:
-;   dist/jvm-windows-amd64-setup.exe
+;   dist/jvm-windows-<arch>-setup.exe
 ;
 ; Design:
 ;   - Per-user install to %LOCALAPPDATA%\Programs\jvm (no UAC, no admin)
 ;   - Environment config (PATH + shell profile) is delegated to jvm.exe itself,
 ;     which already self-configures on first run via env.EnsureUserPath and
 ;     shell.EnsureIntegration. The installer just drops the exe and runs it once.
+;   - The installer stub itself is x86; on ARM64 Windows it runs under the
+;     built-in x86 emulation, while the jvm.exe it drops is the native
+;     ${APP_ARCH} build.
 ;
 ; Path note: NSIS resolves File paths relative to this script's directory
-; (installer/), so the built exe is referenced as "..\dist\jvm.exe".
+; (installer/), so the built exe is referenced as "..\dist\<arch>\jvm.exe"
+; (the Makefile builds into per-arch subdirectories).
 
 Unicode true
 ManifestDPIAware true
@@ -23,8 +27,13 @@ ManifestDPIAware true
   !define APP_VERSION "0.0.0"
 !endif
 
+; Target CPU arch injected from the command line: /DAPP_ARCH=amd64|arm64
+!ifndef APP_ARCH
+  !define APP_ARCH "amd64"
+!endif
+
 Name "jvm ${APP_VERSION}"
-OutFile "..\dist\jvm-windows-amd64-setup.exe"
+OutFile "..\dist\jvm-windows-${APP_ARCH}-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\jvm"
 ; Reuse previous install dir on upgrade
 InstallDirRegKey HKCU "Software\jvm" "InstallDir"
@@ -57,7 +66,7 @@ BrandingText "jvm ${APP_VERSION}"
 Section "jvm executable (required)" SecCore
   SectionIn RO
   SetOutPath "$INSTDIR"
-  File "..\dist\jvm.exe"
+  File "..\dist\${APP_ARCH}\jvm.exe"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; Remember install location (reused on upgrade)

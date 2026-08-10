@@ -12,8 +12,11 @@ VERSION := $(DEFAULT_VERSION)
 endif
 DIST     := dist
 GO       := go
+# 目标架构: 默认取本机 (go env GOARCH); 交叉编 ARM64 用 make build GOARCH=arm64。
+# 产物按架构分目录存放 (dist/<arch>/jvm.exe), 避免双架构构建互相覆盖。
+GOARCH   ?= $(shell $(GO) env GOARCH)
 LDFLAGS  := -s -w -X jvm/internal/app.Version=$(VERSION)
-TARGET   := $(DIST)/$(BINARY).exe
+TARGET   := $(DIST)/$(GOARCH)/$(BINARY).exe
 
 # ---- 默认目标 ----
 .PHONY: all
@@ -21,11 +24,12 @@ all: build
 
 # ---- 构建 ----
 # -trimpath 去掉本机路径, -ldflags "-s -w" 去掉调试符号缩小体积
+# GOOS 固定 windows (项目仅支持 Windows), GOARCH 可传 arm64 交叉编译
 .PHONY: build
 build:
-	@echo "[build] $(TARGET) (v$(VERSION))..."
-	@mkdir -p $(DIST)
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(TARGET) .
+	@echo "[build] $(TARGET) (v$(VERSION), windows/$(GOARCH))..."
+	@mkdir -p $(DIST)/$(GOARCH)
+	GOOS=windows GOARCH=$(GOARCH) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(TARGET) .
 	@echo "[ok]   $(TARGET)"
 	@ls -lh $(TARGET) | awk '{print "       size:", $$5}'
 
@@ -55,36 +59,39 @@ vet:
 	$(GO) vet ./...
 
 # ---- NSIS 安装包 (需 makensis 在 PATH; scoop install nsis 或 choco install nsis) ----
-# 产物: dist/jvm-windows-amd64-setup.exe
+# 产物: dist/jvm-windows-$(GOARCH)-setup.exe (ARM64 用 GOARCH=arm64)
+# 安装器 stub 是 x86 的, 在 ARM64 Windows 上靠系统内置模拟运行,
+# 释放出来的 jvm.exe 仍是目标架构原生二进制。
 .PHONY: installer
 installer: build
-	@echo "[installer] building setup exe (v$(VERSION))..."
-	makensis /DAPP_VERSION=$(VERSION) installer/jvm.nsi
-	@echo "[ok]   $(DIST)/$(BINARY)-windows-amd64-setup.exe"
+	@echo "[installer] building setup exe (v$(VERSION), $(GOARCH))..."
+	makensis /DAPP_VERSION=$(VERSION) /DAPP_ARCH=$(GOARCH) installer/jvm.nsi
+	@echo "[ok]   $(DIST)/$(BINARY)-windows-$(GOARCH)-setup.exe"
 
 # ---- 发 release 时用: 生成便携 zip ----
-# 产物 dist/jvm-windows-amd64.zip (内含单个 jvm.exe, 供 jvm upgrade 精确匹配拉取)
+# 产物 dist/jvm-windows-$(GOARCH).zip (内含单个 jvm.exe, 供 jvm upgrade 精确匹配拉取)
 # 用 PowerShell Compress-Archive, 不依赖 zip 命令 (Windows / CI 都自带 PowerShell)
 .PHONY: release
 release: build
-	@powershell -NoProfile -Command "Compress-Archive -Path $(DIST)\$(BINARY).exe -DestinationPath $(DIST)\$(BINARY)-windows-amd64.zip -Force"
-	@echo "[release] $(DIST)/$(BINARY)-windows-amd64.zip"
+	@powershell -NoProfile -Command "Compress-Archive -Path $(DIST)\$(GOARCH)\$(BINARY).exe -DestinationPath $(DIST)\$(BINARY)-windows-$(GOARCH).zip -Force"
+	@echo "[release] $(DIST)/$(BINARY)-windows-$(GOARCH).zip"
 	@echo "          上传到 GitHub Release (tag: v$(VERSION)) 后即可用 jvm upgrade 自更新"
 
-# ---- 一键产出全部发行资产 (安装器 + 便携 zip) ----
+# ---- 一键产出全部发行资产 (安装器 + 便携 zip, 仅当前 GOARCH) ----
+# 双架构发行资产由 CI 分别用 GOARCH=amd64 / GOARCH=arm64 各跑一遍产出。
 .PHONY: dist-all
 dist-all: installer release
-	@echo "[dist-all] both assets ready under $(DIST)/"
+	@echo "[dist-all] both assets ready under $(DIST)/ (windows/$(GOARCH))"
 
 # ---- 帮助 ----
 .PHONY: help
 help:
 	@echo "jvm build targets:"
-	@echo "  make build                    build to $(DIST)/$(BINARY).exe"
+	@echo "  make build                    build to $(DIST)/<arch>/$(BINARY).exe (GOARCH=arm64 交叉编 ARM64)"
 	@echo "  make run ARGS=\"version\"        build and run"
-	@echo "  make installer                build NSIS setup -> $(DIST)/$(BINARY)-windows-amd64-setup.exe"
-	@echo "  make release                  build portable zip -> $(DIST)/$(BINARY)-windows-amd64.zip"
-	@echo "  make dist-all                 build both release assets"
+	@echo "  make installer                build NSIS setup -> $(DIST)/$(BINARY)-windows-<arch>-setup.exe"
+	@echo "  make release                  build portable zip -> $(DIST)/$(BINARY)-windows-<arch>.zip"
+	@echo "  make dist-all                 build both release assets (current GOARCH)"
 	@echo "  make clean                    remove $(DIST)/"
 	@echo "  make tidy                     go mod tidy"
 	@echo "  make fmt                      format code"
