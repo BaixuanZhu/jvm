@@ -3,24 +3,39 @@ layout: landing
 title: 首页
 ---
 
-<!-- ================= Hero ================= -->
+<!-- ================= Hero（左文右终端） ================= -->
 <section class="hero">
-  <div class="container">
-    <span class="hero-badge">开源 · MIT · 仅 Windows x64</span>
-    <h1>Windows 上的<br><span class="grad">Java 版本管理器</span></h1>
-    <p class="hero-sub">
-      类似 nvm-windows / jabba 的 JDK 版本管理工具。
-      一键安装、秒级切换、自动配置 PATH 与 JAVA_HOME，全程免管理员权限。
-    </p>
+  <div class="container hero-split">
+    <div class="hero-text">
+      <span class="hero-badge">开源 · MIT · 仅 Windows x64</span>
+      <h1>Windows 上的<br><span class="grad">Java 版本管理器</span></h1>
+      <p class="hero-sub">
+        类似 nvm-windows / jabba 的 JDK 版本管理工具。
+        一键安装、秒级切换、自动配置 PATH 与 JAVA_HOME，全程免管理员权限。
+      </p>
 
-    <div class="install-cmd">
-      <code id="hero-install-cmd">iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" | iex</code>
-      <button class="copy-btn" data-copy="#hero-install-cmd">复制</button>
+      <div class="install-cmd">
+        <code id="hero-install-cmd">iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" | iex</code>
+        <button class="copy-btn" data-copy="#hero-install-cmd">复制</button>
+      </div>
+
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="{{ site.download_setup }}">下载安装包</a>
+        <a class="btn btn-ghost" href="{{ site.github_repo }}" target="_blank" rel="noopener">GitHub ★</a>
+      </div>
     </div>
 
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="{{ site.download_setup }}">下载安装包</a>
-      <a class="btn btn-ghost" href="{{ site.github_repo }}" target="_blank" rel="noopener">GitHub ★</a>
+    <!-- 无 JS / 减弱动效时显示静态内容；否则替换为打字动画 -->
+    <div class="terminal hero-term">
+      <div class="terminal-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">PowerShell</span>
+      </div>
+      <pre id="demo-term"><span class="p">jvm install 21</span>
+
+<span class="p">jvm use 21</span>
+
+<span class="o">java -version</span>  <span class="c"># 现在就是新版本</span></pre>
     </div>
   </div>
 </section>
@@ -62,30 +77,6 @@ title: 首页
         <h3>国内加速</h3>
         <p>Temurin 优先走清华镜像，失败自动回退官方 CDN；下载支持断点续传。</p>
       </div>
-    </div>
-  </div>
-</section>
-
-<!-- ================= 快速开始 ================= -->
-<section class="section">
-  <div class="container">
-    <h2 class="section-title fade-in">三步上手</h2>
-    <p class="section-sub fade-in">首次运行后重开一次终端，之后一劳永逸。</p>
-
-    <div class="terminal fade-in">
-      <div class="terminal-bar">
-        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span class="term-title">PowerShell</span>
-      </div>
-      <!-- 无 JS 时显示静态内容；有 JS 时替换为打字动画 -->
-      <pre id="demo-term"><span class="c"># 1. 装一个 JDK</span>
-<span class="p">jvm install 21</span>
-
-<span class="c"># 2. 切换到它</span>
-<span class="p">jvm use 21</span>
-
-<span class="c"># 完成！</span>
-<span class="o">java -version</span>  <span class="c"># 现在就是新版本</span></pre>
     </div>
   </div>
 </section>

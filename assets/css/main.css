@@ -141,6 +141,19 @@ a:hover { text-decoration: underline; }
 
 .hero-actions { margin-top: 30px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 
+/* Hero 双栏：左文案右终端（桌面端） */
+.hero-split { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+.hero-term { margin: 0; max-width: none; width: 100%; }
+@media (min-width: 961px) {
+  .hero { text-align: left; padding: 80px 0 76px; }
+  .hero-sub { margin-left: 0; margin-right: 0; }
+  .hero-actions { justify-content: flex-start; }
+}
+@media (max-width: 960px) {
+  .hero-split { grid-template-columns: 1fr; gap: 44px; }
+  .hero-term { max-width: 680px; margin: 0 auto; }
+}
+
 /* ---------- Section 通用 ---------- */
 .section { padding: 80px 0; }
 .section-alt { background: var(--bg-soft); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
