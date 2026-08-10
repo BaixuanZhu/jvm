@@ -143,6 +143,7 @@ a:hover { text-decoration: underline; }
 
 /* Hero 双栏：左文案右终端（桌面端） */
 .hero-split { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+.hero-text, .hero-term { min-width: 0; }   /* 允许 grid 子项收缩，防长命令撑破布局 */
 .hero-term { margin: 0; max-width: none; width: 100%; }
 @media (min-width: 961px) {
   .hero { text-align: left; padding: 80px 0 76px; }
@@ -198,7 +199,7 @@ a:hover { text-decoration: underline; }
 .terminal-bar .dot { width: 11px; height: 11px; border-radius: 50%; }
 .dot.r { background: #ef4444; } .dot.y { background: #f59e0b; } .dot.g { background: #22c55e; }
 .terminal-bar .term-title { margin-left: 10px; color: var(--text-dim); font-size: .78rem; font-family: var(--font-mono); }
-.terminal pre { padding: 20px 22px; overflow-x: auto; font-family: var(--font-mono); font-size: .9rem; line-height: 1.8; }
+.terminal pre { padding: 20px 22px; overflow-x: auto; font-family: var(--font-mono); font-size: .9rem; line-height: 1.8; text-align: left; }
 .terminal .c { color: #8a857b; }   /* 注释 */
 .terminal .p { color: #c2410c; }   /* 命令 */
 .terminal .o { color: #166534; }   /* 输出 */
