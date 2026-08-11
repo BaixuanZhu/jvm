@@ -8,6 +8,10 @@
 ## [Unreleased]
 
 ### 新增
+
+## [0.9.0] - 2026-08-11
+
+### 新增
 - 新增 Azul Zulu (`zulu@`) 与 BellSoft Liberica (`liberica@`) 两个发行版 provider；
   两者均支持 Windows x64 / ARM64 (Zulu 走 Azul Metadata API 两步查询取官方 sha256，
   Liberica 走 BellSoft Product Discovery API + 官方 sha1)。
