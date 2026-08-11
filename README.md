@@ -3,12 +3,12 @@
 > 🌐 **官网**：<https://baixuanzhu.github.io/jvm/>
 
 一个类似 nvm-windows / jabba 的 JDK 版本管理工具，专为 Windows 设计。
-支持 **Temurin / Corretto / Microsoft Build of OpenJDK** 等多个发行版，提供双击安装包，无需管理员权限。
+支持 **Temurin / Corretto / Microsoft / Azul Zulu / BellSoft Liberica** 等多个发行版，提供双击安装包，无需管理员权限。
 
 ## 特性
 
 - 📦 **一键安装**：`jvm install 21` 自动下载最新 GA 版本
-- 🌐 **多发行版**：`jvm install corretto@21` / `jvm install microsoft@21` 切换发行版（省略前缀默认 temurin）
+- 🌐 **多发行版**：`jvm install corretto@21` / `jvm install zulu@21` / `jvm install liberica@21` 切换发行版（省略前缀默认 temurin）
 - 🎯 **精确版本**：`jvm install 21.0.12+8` 安装指定小版本（完整版本号精确匹配）
 - 🔄 **秒级切换**：`jvm use 21` 通过 Windows junction 切换，立即生效
 - ⚡ **当前终端即时生效**：自动注入 shell 函数，`use` 后当前窗口的 `java` 立刻变，无需重开
@@ -85,6 +85,8 @@ jvm use 21
 jvm install 21              # 安装 temurin JDK 21 最新版 (默认发行版)
 jvm install corretto@21     # 安装 corretto JDK 21 最新版
 jvm install microsoft@21    # 安装 microsoft JDK 21 最新版
+jvm install zulu@21         # 安装 zulu JDK 21 最新版
+jvm install liberica@21     # 安装 liberica JDK 21 最新版
 jvm install 21.0.12+8       # 安装 temurin 精确版本 (完整版本号, 含 build 号)
 jvm use 21                  # 切换到 21 (大版本号取最新)
 jvm use corretto@21         # 切换到 corretto 21
@@ -157,7 +159,9 @@ arch = "aarch64"
 |---|---|---|
 | Temurin | ⚠️ 部分版本有 | Adoptium 官方 Windows ARM64 覆盖不全（如 21 有、17/25 暂无，以 API 实际返回为准）；缺失版本查询时报错会带 `(windows/aarch64)` 上下文 |
 | Microsoft | ✅ 有 | 11 / 17 / 21 / 25 全部 LTS 均有 ARM64 构建 |
-| Corretto | ❌ 没有 | 官方未发布 Windows ARM64 构建；`arch=aarch64` 时安装/查询会明确报错并建议改用 Temurin / Microsoft |
+| Zulu | ✅ 有 | Azul 提供 Windows ARM64 构建（API `arch=arm64`） |
+| Liberica | ✅ 有 | BellSoft 提供 Windows ARM64 构建（API `arch=arm&bitness=64`） |
+| Corretto | ❌ 没有 | 官方未发布 Windows ARM64 构建；`arch=aarch64` 时安装/查询会明确报错并建议改用 Temurin / Microsoft / Zulu / Liberica |
 
 也可用环境变量临时覆盖（优先级高于配置文件），适合一次性切换：
 
@@ -194,8 +198,8 @@ jvm install 21
 | junction 创建 | 原生 `FSCTL_SET_REPARSE_POINT` (syscall) | 不调用 cmd.exe，无注入面 |
 | 当前终端生效 | 启动时自动注入 shell wrapper 函数 | 子进程改不了父 shell 环境，靠函数在会话内刷新 PATH |
 | PATH 注入 | 注册表 `HKCU\Environment` + 广播 WM_SETTINGCHANGE | 不用 setx（会截断长 PATH） |
-| 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退；Corretto/Microsoft 直连官方 CDN | 国内快，且官方兜底 |
-| 发行版 | Temurin / Corretto / Microsoft Build of OpenJDK | 纯 zip 解压，无需 msi installer |
+| 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退；Corretto/Microsoft/Zulu 直连各自官方 CDN；Liberica 走 download.bell-sw.com 官方 CDN | 国内快，且官方兜底 |
+| 发行版 | Temurin / Corretto / Microsoft / Azul Zulu / BellSoft Liberica | 纯 zip 解压，无需 msi installer |
 
 ## 构建
 
@@ -227,7 +231,9 @@ make dist-all GOARCH=arm64
 | `internal/provider/temurin/` | Temurin (Adoptium) 适配器：API + 清华镜像（x64 / aarch64） |
 | `internal/provider/corretto/` | Amazon Corretto 适配器：indexmap JSON（仅 x64，官方无 ARM64 构建） |
 | `internal/provider/microsoft/` | Microsoft Build of OpenJDK 适配器：aka.ms 探测（x64 / aarch64） |
-| `internal/jdk/` | 下载、SHA256 校验、解压（原子替换） |
+| `internal/provider/zulu/` | Azul Zulu 适配器：Metadata API 两步查询 + SHA256（x64 / aarch64） |
+| `internal/provider/liberica/` | BellSoft Liberica 适配器：Product Discovery API + SHA1（x64 / aarch64） |
+| `internal/jdk/` | 下载、完整性校验（SHA256/SHA1）、解压（原子替换） |
 | `internal/junction/` | junction 创建/删除/解析 (原生 syscall) |
 | `internal/env/` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
 | `internal/shell/` | PowerShell/bash 集成脚本生成 + profile 写入 |

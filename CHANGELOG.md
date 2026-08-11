@@ -8,6 +8,16 @@
 ## [Unreleased]
 
 ### 新增
+- 新增 Azul Zulu (`zulu@`) 与 BellSoft Liberica (`liberica@`) 两个发行版 provider；
+  两者均支持 Windows x64 / ARM64 (Zulu 走 Azul Metadata API 两步查询取官方 sha256，
+  Liberica 走 BellSoft Product Discovery API + 官方 sha1)。
+- 下载校验层支持多算法: `Asset` 契约由 `SHA256` 改为 `Checksum` + `ChecksumAlgo`
+  (默认 sha256), 各 provider 按发行版官方提供的哈希校验 (Liberica 用 SHA1, 其余 SHA256);
+  `internal/jdk` 的 `fileSHA256` 泛化为 `fileHash(path, algo)`。
+- paths 支持 `JVM_HOME` 环境变量重定向根目录 (CI / 集成测试隔离文件副作用用); 新增
+  CI workflow (`.github/workflows/ci.yml`): push/PR 每次跑单元测试, 每周 schedule +
+  手动 `workflow_dispatch` 跑真实集成测试 (`scripts/integration-test.sh`, 全 5 发行版
+  install/use/list/doctor/uninstall); Makefile 新增 `test` target。
 - 本地开发构建不再污染环境: `make build` / `make run` 产物经 ldflags 注入
   `Bootstrap=off`, 启动时不写用户 PATH / shell profile (发行风味用
   `make build-dist`, `installer`/`release`/`dist-all` 自动走它); 任何构建可用

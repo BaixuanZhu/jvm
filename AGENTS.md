@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。**仅支持 Windows（x64 / ARM64）**。
+`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。**仅支持 Windows（x64 / ARM64）**。
 
 ## Setup commands
 
@@ -11,13 +11,16 @@
 - Build: `make build` → `dist/<arch>/jvm.exe`（`-trimpath -ldflags "-s -w"`；`GOARCH` 默认取本机 `go env GOARCH`，交叉编 ARM64 用 `make build GOARCH=arm64`）。**开发构建注入 `Bootstrap=off`，产物启动不做静默自举**；发行风味用 `make build-dist`（`installer`/`release`/`dist-all` 自动走它）
 - Run: `make run ARGS="version"`（先 dev build 再运行，不污染环境）
 - Format / 静态检查: `make fmt` / `make vet`（即 `go fmt ./...` / `go vet ./...`）
+- 测试: `make test`（即 `go test ./...`）
 - Deps: `make tidy`
 - 安装包: `make installer` → `dist/jvm-windows-<arch>-setup.exe`（需 NSIS：`scoop install nsis` 或 `choco install nsis`）
 - 便携 zip: `make release` → `dist/jvm-windows-<arch>.zip`（供 `jvm upgrade` 拉取）
 - 全部发行资产: `make dist-all`（仅当前 `GOARCH`；双架构由 CI 分别传 `GOARCH=amd64/arm64` 各跑一遍）
 - Clean: `make clean`
 
-发布：打 tag（`git tag v0.1.0 && git push --tags`）触发 `.github/workflows/release.yml`，在 windows-latest 自动编译（amd64 + arm64 双架构）、打安装器 + 便携 zip 并发 GitHub Release（四 asset + checksums.txt）。ARM64 安装器 stub 为 x86，在 ARM64 Windows 上靠系统内置模拟运行，释放出的 jvm.exe 是 ARM64 原生。
+发布：打 tag（`git tag v0.1.0 && git push --tags`）触发 `.github/workflows/release.yml`，在 windows-latest **先跑单测 gate（红则中止发版）** 再自动编译（amd64 + arm64 双架构）、打安装器 + 便携 zip 并发 GitHub Release（四 asset + checksums.txt）。ARM64 安装器 stub 为 x86，在 ARM64 Windows 上靠系统内置模拟运行，释放出的 jvm.exe 是 ARM64 原生。
+
+CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（`go vet` + `go test` + `go build`，windows-latest）；真实集成测试（`scripts/integration-test.sh`，跑全 5 发行版的 install/use/list/doctor/uninstall + ARM64 下载链路）仅每周 schedule + 手动 `workflow_dispatch` 触发（下载 ~1GB JDK，重）。集成 job 用 `JVM_HOME` 指向 runner 临时目录隔离文件副作用、`JVM_NO_BOOTSTRAP=1` 关自举（`use` 仍写一次性 runner 的注册表，可接受）。本地手跑集成脚本前注意：`use` 会改本机注册表 JAVA_HOME/PATH。
 
 **发版前必须更新 `CHANGELOG.md`**：在 `## [Unreleased]` 下方新增 `## [<版本号>] - <YYYY-MM-DD>` 段落，按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 分类（新增/变更/修复/移除）。CI 的 release workflow 用 awk 从该段落抽取 Release body（抽不到则 Release 页面无说明），漏写会导致 GitHub Release 页面信息缺失。文档/纯测试/重构等非用户可见变更不必记。
 
@@ -37,18 +40,20 @@
 
 命令路由在 `main.go`（纯 switch，无框架），各子命令实现在 `cmd` 包（编排层：解析参数 → 调底层包 → 输出），基础设施按职责拆在 `internal/`：
 
-- `internal/provider/` — **Provider 抽象层**：核心接口（`Name`/`DisplayName`/`Available`/`Resolve`/`LatestPatch`/`ListVersions`）+ `Base` 基类（默认实现）+ 注册表（`Register`/`Get`/`All`）+ **`Configurable` 可选接口与 `ConfigureAll(arch, mirror)` 分发**（provider 实现 `Configurable` 即在启动时自动接收全局目标架构/镜像，main.go 无需改动；temurin 两者都用，corretto/microsoft 只用 arch）。各发行版适配器嵌入 `Base` 按需 override。新公共 provider 逻辑优先放这里或 `internal/app/`，而非塞进某个业务包。
+- `internal/provider/` — **Provider 抽象层**：核心接口（`Name`/`DisplayName`/`Available`/`Resolve`/`LatestPatch`/`ListVersions`）+ `Base` 基类（默认实现）+ 注册表（`Register`/`Get`/`All`）+ **`Configurable` 可选接口与 `ConfigureAll(arch, mirror)` 分发**（provider 实现 `Configurable` 即在启动时自动接收全局目标架构/镜像，main.go 无需改动；temurin 两者都用，corretto/microsoft/zulu/liberica 只用 arch）。各发行版适配器嵌入 `Base` 按需 override。新公共 provider 逻辑优先放这里或 `internal/app/`，而非塞进某个业务包。
 - `internal/provider/temurin/` — Temurin (Adoptium) 适配器：Adoptium API 查大版本/最新 GA/精确版本，解析官方 CDN 直链与清华镜像 URL（轻量 JSON 走官方 API，大文件下载走镜像）。支持 x64 / aarch64；**注意上游 Windows ARM64 覆盖不全**（如 21 有、17/25 暂无，Adoptium API 对缺失组合返回 404），查询错误消息统一带 `(windows/{arch})` 上下文便于定位。
 - `internal/provider/corretto/` — Amazon Corretto 适配器：corretto-downloads 仓库的 indexmap JSON（含 SHA256，按架构 map 化索引），直连 CloudFront CDN（无镜像）。**官方无 Windows ARM64 构建**：`arch=aarch64` 时各入口统一报 `errNoWindowsARM64` 并建议改用 temurin/microsoft。
 - `internal/provider/microsoft/` — Microsoft Build of OpenJDK 适配器：aka.ms 短链重定向探测 + `.sha256sum.txt` 旁路校验，仅 LTS（11/17/21/25），直连 VisualStudio CDN（无镜像）。x64 / aarch64 均支持（短链文件名后缀参数化）。
-- `internal/jdk/` — 下载、SHA256 校验、解压、原子替换到 `~/.jvm/versions/`（发行版无关，只认 `*app.Asset`）。
+- `internal/provider/zulu/` — Azul Zulu 适配器：Azul Metadata API 两步查询（列表端点拿直链 + `package_uuid`，详情端点拿 `sha256_hash`），按文件名 `-ca-jdk` 过滤纯 JDK 变体（排除 fx/crac），直连 cdn.azul.com（无镜像）。x64 / aarch64 均支持（API `arch=arm64`，文件名 `win_aarch64`）。
+- `internal/provider/liberica/` — BellSoft Liberica 适配器：BellSoft Product Discovery API 一次拉该架构全量 JDK zip（API 无 feature 过滤，客户端按 `latestInFeatureVersion`/`featureVersion` 过滤），**官方仅提供 sha1**（无 sha256）故用 SHA1 做完整性校验（`Asset.ChecksumAlgo="sha1"`），下载直链自拼 `download.bell-sw.com` 官方 CDN（替代 API 返回的 GitHub 域）。x64 / aarch64 均支持（API `arch=arm&bitness=64`）。
+- `internal/jdk/` — 下载、完整性校验（SHA256/SHA1，按 provider 提供）、解压、原子替换到 `~/.jvm/versions/`（发行版无关，只认 `*app.Asset`）。
 - `internal/junction/` — Windows junction 创建/删除/解析，用**原生 syscall**（`FSCTL_SET_REPARSE_POINT`），不调 `cmd.exe`（避免注入面）。
 - `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH。
 - `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）；profile 路径走 `KnownFolderPath`（`FOLDERID_Documents`/`FOLDERID_Profile`），兼容 Documents 目录重定向。
 - `internal/upgrade/` — 走 GitHub Release 自更新。
 - `internal/updatecheck/` — 启动时静默检查 GitHub 新版本（24h 节流，落后才提示，失败永不阻断）；只依赖 `app`，不依赖 `upgrade`（检查提示与执行升级职责分离）。
 - `internal/doctor/` — `jvm doctor` 环境诊断：目录结构 / junction / JAVA_HOME / PATH 冲突 / shell 集成 / current 的 java / java 版本（实跑 `java -version`）/ 版本目录完整性 / 注册表 PATH 残留 共 9 项，每项输出 ✓/✗ 并附修复建议。检查函数收显式参数、不读全局，便于表驱动测试。
-- `internal/config/` — 用户配置加载（`~/.jvm/config.toml`）：当前覆盖 `mirror`（下载镜像，默认清华 TUNA，仅 temurin 消费）与 `arch`（目标架构，默认跟随 `runtime.GOARCH`：amd64 版 → `x64`，arm64 版 → `aarch64`；三个 provider 均消费 arch）。优先级：环境变量（`JVM_MIRROR`/`JVM_ARCH`）> 配置文件 > 默认值；配置文件缺失视为正常，解析失败警告后回退默认。
+- `internal/config/` — 用户配置加载（`~/.jvm/config.toml`）：当前覆盖 `mirror`（下载镜像，默认清华 TUNA，仅 temurin 消费）与 `arch`（目标架构，默认跟随 `runtime.GOARCH`：amd64 版 → `x64`，arm64 版 → `aarch64`；五个 provider 均消费 arch）。优先级：环境变量（`JVM_MIRROR`/`JVM_ARCH`）> 配置文件 > 默认值；配置文件缺失视为正常，解析失败警告后回退默认。
 - `internal/paths/` — `~/.jvm` 下目录路径常量（`init()` 里基于 `os.UserHomeDir()` 计算）。
 - `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client、`CompareVersions` 版本比较、`LatestGitHubTag` release 查询、`NormArch` 架构规范化（`x64`/`aarch64` 规范值 + `amd64`/`arm64` 别名）、`Asset`/`Release`/`VersionSpec` 跨 provider 下载契约）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
 
@@ -67,11 +72,11 @@
 
 本工具下载二进制并修改系统 PATH/注册表，属安全敏感项目：
 
-- 所有 JDK 下载必须 **SHA256 校验**，损坏/篡改即报错中止（见 `internal/jdk` 的 `fileSHA256`）。
+- 所有 JDK 下载必须**完整性校验**（SHA256 或 SHA1，按发行版官方提供），损坏/篡改即报错中止（见 `internal/jdk` 的 `fileHash`）。Liberica 官方仅提供 sha1，故用 SHA1；其余发行版用 SHA256。
 - junction 创建走原生 syscall，**无 shell 子进程**，杜绝命令注入。
 - 自更新（`jvm upgrade`）从 GitHub Release 拉取，靠精确 asset 名匹配（`expectedAssetName`），替换自身前校验。
 - 注册表只写 `HKCU`（用户级），无需管理员；不写 `HKLM`。
-- 无密钥/凭证处理；网络仅连 Adoptium API、corretto-downloads 仓库、aka.ms/VisualStudio CDN、清华镜像、GitHub API/CDN。
+- 无密钥/凭证处理；网络仅连 Adoptium API、corretto-downloads 仓库、aka.ms/VisualStudio CDN、Azul Metadata API/cdn.azul.com、BellSoft API/download.bell-sw.com、清华镜像、GitHub API/CDN。
 
 ## Known gotchas
 
