@@ -33,8 +33,6 @@ jobs:
     env:
       # 关自举: 不写 runner 的 shell profile / 用户 PATH (bootstrap.go 三层关闭之一)
       JVM_NO_BOOTSTRAP: '1'
-      # 重定向 ~/.jvm 到临时目录: install 的 versions/current 全部隔离, 不污染 runner
-      JVM_HOME: ${{ runner.temp }}/jvm-ci
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -45,3 +43,7 @@ jobs:
         run: make build
       - name: 集成测试
         run: bash scripts/integration-test.sh
+        env:
+          # 重定向 ~/.jvm 到 runner 临时目录: install 的 versions/current 全部隔离, 不污染 runner
+          # (runner.temp 在 step env 才可求值; job-level env 里 runner context 未注入)
+          JVM_HOME: ${{ runner.temp }}/jvm-ci
