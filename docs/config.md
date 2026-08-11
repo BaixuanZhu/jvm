@@ -39,7 +39,9 @@ arch = "aarch64"
 |--------|---------------|------|
 | Temurin | ⚠️ 部分版本 | Adoptium 官方覆盖不全（如 21 有、17/25 暂无），以实际查询为准 |
 | Microsoft | ✅ 全部 LTS | 11 / 17 / 21 / 25 均有 ARM64 构建 |
-| Corretto | ❌ 没有 | 官方未发布；`arch=aarch64` 时会明确报错并建议改用 Temurin / Microsoft |
+| Zulu | ✅ LTS | 11 / 17 / 21 / 25 均有 ARM64 构建 |
+| Liberica | ✅ 全部 LTS | 全架构覆盖 |
+| Corretto | ❌ 没有 | 官方未发布；`arch=aarch64` 时会明确报错并建议改用 Temurin / Microsoft / Zulu / Liberica |
 
 也可用环境变量临时覆盖（优先级高于配置文件）：
 
@@ -60,4 +62,4 @@ jvm install 21
 | 当前终端生效 | 启动时自动注入 shell wrapper 函数 | 子进程改不了父 shell 环境 |
 | PATH 持久化 | 注册表 `HKCU\Environment` + 广播 `WM_SETTINGCHANGE` | 不用 setx（会截断长 PATH） |
 | 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退 | 国内快，且官方兜底 |
-| 安全校验 | 全部下载强制 SHA256 校验 | 损坏/篡改即报错中止 |
+| 安全校验 | 下载强制按官方哈希校验（SHA256 / SHA1） | 损坏/篡改即报错中止 |

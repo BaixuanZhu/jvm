@@ -9,6 +9,8 @@ description: jvm 全部子命令与用法示例。
 jvm install 21              # 安装 temurin JDK 21 最新版（默认发行版）
 jvm install corretto@21     # 安装 corretto JDK 21 最新版
 jvm install microsoft@21    # 安装 microsoft JDK 21 最新版
+jvm install zulu@21         # 安装 zulu JDK 21 最新版
+jvm install liberica@21     # 安装 liberica JDK 21 最新版
 jvm install 21.0.12+8       # 安装 temurin 精确版本（完整版本号，含 build 号）
 jvm use 21                  # 切换到 21（大版本号取最新 patch）
 jvm use corretto@21         # 切换到 corretto 21

@@ -4,6 +4,12 @@ description: jvm 各版本变更记录。
 layout: docs
 ---
 
+## [0.9.0] - 2026-08-11
+
+### 新增
+- **新增 Azul Zulu (`zulu@`) 与 BellSoft Liberica (`liberica@`) 两个发行版 provider**：两者均支持 Windows x64 / ARM64。Zulu 走 Azul Metadata API 两步查询取官方 SHA256；Liberica 走 BellSoft Product Discovery API + 官方 SHA1。至此 jvm 覆盖五大主流 OpenJDK 发行版。
+- 下载校验层支持多算法：`Asset` 契约由 `SHA256` 改为 `Checksum` + `ChecksumAlgo`（默认 sha256），各 provider 按发行版官方提供的哈希校验（Liberica 用 SHA1，其余 SHA256）。
+
 ## [0.8.0] - 2026-08-10
 
 ### 新增

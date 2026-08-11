@@ -51,7 +51,7 @@ title: 首页
       <div class="feature-card fade-in">
         <div class="icon">📦</div>
         <h3>一键安装</h3>
-        <p><code>jvm install 21</code> 自动下载最新 GA 版本，SHA256 校验，损坏即报错中止。</p>
+        <p><code>jvm install 21</code> 自动下载最新 GA 版本，官方哈希校验（SHA256 / SHA1），损坏即报错中止。</p>
       </div>
       <div class="feature-card fade-in">
         <div class="icon">🔄</div>
@@ -66,7 +66,7 @@ title: 首页
       <div class="feature-card fade-in">
         <div class="icon">🌐</div>
         <h3>多发行版</h3>
-        <p>Temurin / Corretto / Microsoft Build of OpenJDK，<code>distro@version</code> 语法随心选。</p>
+        <p>Temurin / Corretto / Microsoft / Zulu / Liberica，<code>distro@version</code> 语法随心选。</p>
       </div>
       <div class="feature-card fade-in">
         <div class="icon">🚫</div>
@@ -85,7 +85,7 @@ title: 首页
 <!-- ================= 发行版 ================= -->
 <section class="section section-alt">
   <div class="container">
-    <h2 class="section-title fade-in">三大发行版，一个命令</h2>
+    <h2 class="section-title fade-in">五大发行版，一个命令</h2>
     <p class="section-sub fade-in">省略前缀默认 Temurin，精确到小版本也没问题。</p>
 
     <div class="distro-grid">
@@ -104,10 +104,20 @@ title: 首页
         <p class="vendor">Microsoft Build of OpenJDK · 仅 LTS</p>
         <code>jvm install microsoft@21</code>
       </div>
+      <div class="distro-card fade-in">
+        <h3>Zulu</h3>
+        <p class="vendor">Azul · 覆盖最全的 LTS / 最新版</p>
+        <code>jvm install zulu@21</code>
+      </div>
+      <div class="distro-card fade-in">
+        <h3>Liberica</h3>
+        <p class="vendor">BellSoft · 全架构 · 仅 LTS</p>
+        <code>jvm install liberica@21</code>
+      </div>
     </div>
 
     <p class="distro-note fade-in">精确版本同样支持：<code>jvm install 21.0.12+8</code><br>
-    ARM64 设备自动下载 ARM64 版 JDK（Temurin / Microsoft；Corretto 官方暂无 Windows ARM64 构建）。</p>
+    ARM64 设备自动下载 ARM64 版 JDK（Temurin / Microsoft / Zulu / Liberica；Corretto 官方暂无 Windows ARM64 构建）。</p>
   </div>
 </section>
 
