@@ -162,7 +162,7 @@ func (m microsoft) probe(input string, major int) (*app.Asset, error) {
 		Semver:      fullVersion,
 		Major:       major,
 		ZipURL:      finalURL,
-		SHA256:      sha256,
+		Checksum:    sha256,
 		ReleaseName: fullVersion,
 		Distro:      distroName,
 		// MirrorURL 留空: 直连 VisualStudio CDN

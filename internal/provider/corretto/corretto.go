@@ -231,7 +231,7 @@ func (e jdkEntry) toAsset() *app.Asset {
 		Semver:      ver,
 		Major:       majorOf(ver),
 		ZipURL:      cdnBase + e.Resource,
-		SHA256:      e.ChecksumSHA,
+		Checksum:    e.ChecksumSHA,
 		ReleaseName: ver,
 		Distro:      distroName,
 		// MirrorURL 留空: Corretto CDN 国内可直连, 无镜像

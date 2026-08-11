@@ -338,7 +338,7 @@ func assetFromRecord(r releaseRecord, hint string) (*app.Asset, error) {
 				Semver:    r.VersionData.Semver,
 				Major:     r.VersionData.Major,
 				ZipURL:    b.Package.Link,
-				SHA256:    b.Package.SHA256,
+				Checksum:  b.Package.SHA256,
 				Distro:    distroName,
 				MirrorURL: MirrorDownloadURL(b.Package.Link, r.VersionData.Major),
 			}, nil

@@ -46,7 +46,7 @@ type Provider interface {
 
 	// Resolve 按 VersionSpec 查单个版本, 返回发行版无关的 Asset 契约。
 	// 内部负责: 按 spec.Version 格式分流 (大版本最新 / 精确版本 / release_name),
-	//           解析镜像 URL、SHA256、规整 ReleaseName。
+	//           解析镜像 URL、校验和 (SHA256/SHA1)、规整 ReleaseName。
 	Resolve(spec app.VersionSpec) (*app.Asset, error)
 
 	// ListVersions 返回指定大版本的全部子版本 (供 jvm available -a 展示)。

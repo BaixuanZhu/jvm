@@ -30,6 +30,38 @@ func TestBaseNameOfURL(t *testing.T) {
 	}
 }
 
+// TestFileHash 验证 fileHash 按算法分流 (sha256/sha1)、空与未知算法回退 sha256、
+// 大小写/连字符容忍。用固定内容 "hello" 的已知哈希向量, 不触网。
+func TestFileHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blob")
+	if err := os.WriteFile(path, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	const wantSHA256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	const wantSHA1 = "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+
+	cases := []struct {
+		algo string
+		want string
+	}{
+		{"sha256", wantSHA256},
+		{"sha1", wantSHA1},
+		{"SHA-1", wantSHA1}, // 连字符 + 大小写容忍
+		{"", wantSHA256},    // 空默认 sha256
+		{"md5", wantSHA256}, // 未知算法回退 sha256
+	}
+	for _, c := range cases {
+		got, err := fileHash(path, c.algo)
+		if err != nil {
+			t.Fatalf("fileHash(algo=%q) 出错: %v", c.algo, err)
+		}
+		if got != c.want {
+			t.Errorf("fileHash(algo=%q) = %q, want %q", c.algo, got, c.want)
+		}
+	}
+}
+
 // TestDownloadFile_Retry 验证: 前两次返回 500, 第三次 200, 最终下载成功。
 func TestDownloadFile_Retry(t *testing.T) {
 	var calls int32

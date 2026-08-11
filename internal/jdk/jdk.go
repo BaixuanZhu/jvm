@@ -1,15 +1,18 @@
 // Package jdk 负责 JDK 的下载、校验、解压和安装 (发行版无关)。
 //
 // InstallVersion 按 VersionSpec 调 provider 适配器拿 Asset 元数据 (发行版细节
-// 由适配器消化), 再交给 Install 完成下载 (镜像优先, 无镜像则直连官方)、SHA256
-// 校验、解压到 ~/.jvm/versions。DownloadFile 是通用带进度下载, 被 upgrade 包复用。
+// 由适配器消化), 再交给 Install 完成下载 (镜像优先, 无镜像则直连官方)、完整性
+// 校验 (SHA256/SHA1, 按 provider 提供)、解压到 ~/.jvm/versions。DownloadFile 是
+// 通用带进度下载, 被 upgrade 包复用。
 package jdk
 
 import (
 	"archive/zip"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -107,15 +110,19 @@ func Install(asset *app.Asset, name string) error {
 		return fmt.Errorf("zip 顶层目录名不安全, 已中止: %s", topFolder)
 	}
 
-	// 3. SHA256 校验
-	fmt.Print("🔐 校验 SHA256... ")
-	got, err := fileSHA256(zipPath)
+	// 3. 完整性校验 (按 provider 提供的算法: sha256 / sha1; 为空则跳过)
+	algo := asset.ChecksumAlgo
+	if algo == "" {
+		algo = "sha256"
+	}
+	fmt.Printf("🔐 校验 %s... ", strings.ToUpper(algo))
+	got, err := fileHash(zipPath, algo)
 	if err != nil {
 		return err
 	}
-	if asset.SHA256 != "" && got != asset.SHA256 {
+	if asset.Checksum != "" && got != asset.Checksum {
 		os.Remove(zipPath)
-		return fmt.Errorf("校验失败\n   期望: %s\n   实际: %s", asset.SHA256, got)
+		return fmt.Errorf("校验失败 (%s)\n   期望: %s\n   实际: %s", algo, asset.Checksum, got)
 	}
 	fmt.Println("通过")
 
@@ -375,14 +382,22 @@ func (p *progressReader) Read(buf []byte) (int, error) {
 	return n, err
 }
 
-// fileSHA256 计算文件的 SHA256 (十六进制小写)
-func fileSHA256(path string) (string, error) {
+// fileHash 计算文件的哈希 (十六进制小写), 按 algo 选择算法:
+// "sha1" (含 "sha-1") 用 SHA-1, 其余 (空串/"sha256"/未知) 一律用 SHA-256。
+// 流式读取, 不全量载入内存, 适合大 JDK zip。
+func fileHash(path, algo string) (string, error) {
+	var h hash.Hash
+	switch strings.ToLower(strings.TrimSpace(algo)) {
+	case "sha1", "sha-1":
+		h = sha1.New()
+	default: // "" / "sha256" / 未知 → 一律 SHA-256
+		h = sha256.New()
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}

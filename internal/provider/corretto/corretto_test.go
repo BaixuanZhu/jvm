@@ -98,8 +98,8 @@ func TestToAsset(t *testing.T) {
 	if a.ZipURL != wantURL {
 		t.Errorf("ZipURL = %q, want %q", a.ZipURL, wantURL)
 	}
-	if a.SHA256 != e.ChecksumSHA {
-		t.Errorf("SHA256 = %q, want %q", a.SHA256, e.ChecksumSHA)
+	if a.Checksum != e.ChecksumSHA {
+		t.Errorf("Checksum = %q, want %q", a.Checksum, e.ChecksumSHA)
 	}
 	if a.Distro != "corretto" {
 		t.Errorf("Distro = %q, want %q", a.Distro, "corretto")

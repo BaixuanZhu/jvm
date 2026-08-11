@@ -28,8 +28,12 @@ type Asset struct {
 	// 双源策略; 为空时直接走 ZipURL (适用于无国内镜像的发行版)。
 	MirrorURL string
 
-	// SHA256 是官方/镜像提供的校验和。为空时 jdk 包跳过校验 (各 provider 应尽量填)。
-	SHA256 string
+	// Checksum 是官方/镜像提供的校验和 (十六进制小写)。为空时 jdk 包跳过校验。
+	// 各 provider 按发行版官方提供的方式校验 (多数 sha256, Liberica 为 sha1)。
+	Checksum string
+
+	// ChecksumAlgo 是校验算法: "sha256" (默认, 空串等价) / "sha1"。
+	ChecksumAlgo string
 
 	// ReleaseName 是规整后的版本号, 用于本地目录命名 (不含 distro 前缀)。
 	// 由 provider 的 ShortSemver 产出, 如 "21.0.5+11" / "21.0.12.8.1"。
