@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 3 * * 1' # 每周一 03:00 UTC 跑集成测试
+  workflow_dispatch: # 手动触发 (会跑集成测试)
+
+# 单元测试每次 (push/PR) 都跑; 真实集成测试仅 schedule / 手动跑 (下载 ~1GB JDK, 重)。
+jobs:
+  unit-test:
+    name: 单元测试 (每次)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: go build 自检
+        run: go build ./...
+
+  integration-test:
+    name: 集成测试 (真实 install/use, schedule + 手动)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    env:
+      # 关自举: 不写 runner 的 shell profile / 用户 PATH (bootstrap.go 三层关闭之一)
+      JVM_NO_BOOTSTRAP: '1'
+      # 重定向 ~/.jvm 到临时目录: install 的 versions/current 全部隔离, 不污染 runner
+      JVM_HOME: ${{ runner.temp }}/jvm-ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: build (dev, Bootstrap=off)
+        run: make build
+      - name: 集成测试
+        run: bash scripts/integration-test.sh

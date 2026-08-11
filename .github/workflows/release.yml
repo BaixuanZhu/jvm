@@ -27,6 +27,11 @@ jobs:
         with:
           go-version: '1.26'
 
+      - name: go test (发版前单测 gate)
+        # 单测红 → job 失败 → Release 不发。发版是不可逆的 outward-facing 动作,
+        # 项目安全敏感 (下载二进制 + 改 PATH/注册表 + 自更新), 发版前确认单测全绿。
+        run: go test ./...
+
       - name: Derive version from tag
         id: ver
         shell: bash

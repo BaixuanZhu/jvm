@@ -70,6 +70,10 @@ fmt:
 vet:
 	$(GO) vet ./...
 
+.PHONY: test
+test:
+	$(GO) test ./...
+
 # ---- NSIS 安装包 (需 makensis 在 PATH; scoop install nsis 或 choco install nsis) ----
 # 产物: dist/jvm-windows-$(GOARCH)-setup.exe (ARM64 用 GOARCH=arm64)
 # 安装器 stub 是 x86 的, 在 ARM64 Windows 上靠系统内置模拟运行,
