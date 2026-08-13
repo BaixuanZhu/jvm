@@ -14,6 +14,9 @@
   注释）；版本解析链路完全复用现有 `ParseVersionSpec` + `ResolveVersion`，
   指定版本未安装时报错提示 `jvm install`（不自动下载）。新增 `internal/pinrc`
   包；为把目录名转成 distro@version，导出 `junction.SplitDistro`。
+- 新增竞态检测：`make test-race`（`go test -race ./...`）本地可用，CI 每次
+  push/PR 在单元测试后额外跑一遍 race，锁定 `cmd` 并发查询与 `provider` 注册表
+  等路径的正确性。
 
 ## [0.9.0] - 2026-08-11
 

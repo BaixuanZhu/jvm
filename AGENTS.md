@@ -11,7 +11,7 @@
 - Build: `make build` → `dist/<arch>/jvm.exe`（`-trimpath -ldflags "-s -w"`；`GOARCH` 默认取本机 `go env GOARCH`，交叉编 ARM64 用 `make build GOARCH=arm64`）。**开发构建注入 `Bootstrap=off`，产物启动不做静默自举**；发行风味用 `make build-dist`（`installer`/`release`/`dist-all` 自动走它）
 - Run: `make run ARGS="version"`（先 dev build 再运行，不污染环境）
 - Format / 静态检查: `make fmt` / `make vet`（即 `go fmt ./...` / `go vet ./...`）
-- 测试: `make test`（即 `go test ./...`）
+- 测试: `make test`（即 `go test ./...`）；竞态检测 `make test-race`（`go test -race ./...`）
 - Deps: `make tidy`
 - 安装包: `make installer` → `dist/jvm-windows-<arch>-setup.exe`（需 NSIS：`scoop install nsis` 或 `choco install nsis`）
 - 便携 zip: `make release` → `dist/jvm-windows-<arch>.zip`（供 `jvm upgrade` 拉取）
@@ -20,7 +20,7 @@
 
 发布：打 tag（`git tag v0.1.0 && git push --tags`）触发 `.github/workflows/release.yml`，在 windows-latest **先跑单测 gate（红则中止发版）** 再自动编译（amd64 + arm64 双架构）、打安装器 + 便携 zip 并发 GitHub Release（四 asset + checksums.txt）。ARM64 安装器 stub 为 x86，在 ARM64 Windows 上靠系统内置模拟运行，释放出的 jvm.exe 是 ARM64 原生。
 
-CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（`go vet` + `go test` + `go build`，windows-latest）；真实集成测试（`scripts/integration-test.sh`，跑全 5 发行版的 install/use/list/doctor/uninstall + ARM64 下载链路）仅每周 schedule + 手动 `workflow_dispatch` 触发（下载 ~1GB JDK，重）。集成 job 用 `JVM_HOME` 指向 runner 临时目录隔离文件副作用、`JVM_NO_BOOTSTRAP=1` 关自举（`use` 仍写一次性 runner 的注册表，可接受）。本地手跑集成脚本前注意：`use` 会改本机注册表 JAVA_HOME/PATH。
+CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（`go vet` + `go test` + `go test -race` + `go build`，windows-latest）；真实集成测试（`scripts/integration-test.sh`，跑全 5 发行版的 install/use/list/doctor/uninstall + ARM64 下载链路）仅每周 schedule + 手动 `workflow_dispatch` 触发（下载 ~1GB JDK，重）。集成 job 用 `JVM_HOME` 指向 runner 临时目录隔离文件副作用、`JVM_NO_BOOTSTRAP=1` 关自举（`use` 仍写一次性 runner 的注册表，可接受）。本地手跑集成脚本前注意：`use` 会改本机注册表 JAVA_HOME/PATH。
 
 **发版前必须更新 `CHANGELOG.md`**：在 `## [Unreleased]` 下方新增 `## [<版本号>] - <YYYY-MM-DD>` 段落，按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 分类（新增/变更/修复/移除）。CI 的 release workflow 用 awk 从该段落抽取 Release body（抽不到则 Release 页面无说明），漏写会导致 GitHub Release 页面信息缺失。文档/纯测试/重构等非用户可见变更不必记。
 

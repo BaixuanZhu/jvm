@@ -74,6 +74,11 @@ vet:
 test:
 	$(GO) test ./...
 
+# ---- 竞态检测 (-race 比 test 慢; 锁定 cmd / provider 等并发路径的正确性) ----
+.PHONY: test-race
+test-race:
+	$(GO) test -race ./...
+
 # ---- NSIS 安装包 (需 makensis 在 PATH; scoop install nsis 或 choco install nsis) ----
 # 产物: dist/jvm-windows-$(GOARCH)-setup.exe (ARM64 用 GOARCH=arm64)
 # 安装器 stub 是 x86 的, 在 ARM64 Windows 上靠系统内置模拟运行,
@@ -113,3 +118,5 @@ help:
 	@echo "  make tidy                     go mod tidy"
 	@echo "  make fmt                      format code"
 	@echo "  make vet                      static check"
+	@echo "  make test                     run unit tests"
+	@echo "  make test-race                run unit tests with -race detector"
