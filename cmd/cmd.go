@@ -21,6 +21,7 @@ import (
 	"jvm/internal/jdk"
 	"jvm/internal/junction"
 	"jvm/internal/paths"
+	"jvm/internal/pinrc"
 	"jvm/internal/provider"
 )
 
@@ -41,9 +42,15 @@ func Install(arg string) {
 }
 
 // Use 处理 jvm use <[distro@]版本号>
+// 无参数时从当前目录向上查找 .jvmrc, 用其中指定的版本 (显式参数优先)。
 func Use(arg string) {
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
+	}
+
+	// 无参数: 读 .jvmrc (从当前目录向上查找)
+	if arg == "" {
+		arg = versionFromPinrc()
 	}
 
 	spec, err := app.ParseVersionSpec(arg)
@@ -71,6 +78,56 @@ func Use(arg string) {
 	fmt.Println("   集成了 shell 函数的终端 (PowerShell / Git Bash):")
 	fmt.Println("   java -version 现在就是新版本。")
 	fmt.Println("   未集成或老终端: 新开一个窗口即可。")
+}
+
+// versionFromPinrc 从当前目录向上查找 .jvmrc 并解析出版本号, 供 Use 无参数时调用。
+// 找不到或解析失败时直接 Fail 并给出友好提示。
+func versionFromPinrc() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		app.Fail("获取当前目录失败: " + err.Error())
+	}
+	content, foundPath, found := pinrc.FindUp(cwd)
+	if !found {
+		app.Fail("用法: jvm use <[distro@]版本号>\n  或在当前目录 (或上层) 创建 .jvmrc: 运行 jvm pin <版本号>")
+	}
+	spec, err := pinrc.Parse(content)
+	if err != nil {
+		app.Fail(foundPath + ": " + err.Error())
+	}
+	fmt.Printf("📌 读取 %s: %s\n", foundPath, spec)
+	return spec
+}
+
+// Pin 处理 jvm pin [版本号]: 把版本号写入当前目录的 .jvmrc。
+// 无参数时用当前 current 指向的版本 (转成 distro@version 形式)。
+// 只写文件, 不切换版本; 想立即生效再 jvm use。
+func Pin(arg string) {
+	if arg == "" {
+		// 无参: 取当前 current 版本, 转成 distro@version 形式
+		t := junction.ReadTarget()
+		if t == "" {
+			app.Fail("当前没有选中任何版本, 先 jvm use <版本号>")
+		}
+		distro, ver := junction.SplitDistro(filepath.Base(t))
+		arg = distro + "@" + ver
+	} else {
+		// 有参: 先校验是合法 spec, 不写脏文件
+		if _, err := app.ParseVersionSpec(arg); err != nil {
+			app.Fail("无效的版本号: " + err.Error())
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		app.Fail("获取当前目录失败: " + err.Error())
+	}
+	if err := pinrc.Write(cwd, arg); err != nil {
+		app.Fail("写入 .jvmrc 失败: " + err.Error())
+	}
+	fmt.Printf("📌 已写入 %s\n", filepath.Join(cwd, pinrc.Filename))
+	fmt.Printf("   内容: %s\n", arg)
+	fmt.Println("在此目录运行 jvm use (无参数) 即切换到该版本。")
 }
 
 // switchTo 切换的核心: 删旧 junction → 建新 → 持久化 JAVA_HOME/PATH

@@ -26,6 +26,7 @@ func TestPsCompletionScript(t *testing.T) {
 		{"含子命令 install", "'install'"},
 		{"含子命令 completion", "'completion'"},
 		{"含子命令 use", "'use'"},
+		{"含子命令 pin", "'pin'"},
 		{"含子命令 available", "'available'"},
 	}
 	for _, c := range checks {
@@ -53,7 +54,8 @@ func TestBashCompletionScript(t *testing.T) {
 		{"含 compgen", "compgen"},
 		{"install 分支", "install)"},
 		{"available 分支", "available)"},
-		{"use 分支", "use|uninstall|rm)"},
+		{"含子命令 pin", " pin "},
+		{"use 分支", "use|pin|uninstall|rm)"},
 	}
 	for _, c := range checks {
 		if !strings.Contains(script, c.want) {

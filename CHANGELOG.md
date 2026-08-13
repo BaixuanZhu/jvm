@@ -8,6 +8,12 @@
 ## [Unreleased]
 
 ### 新增
+- 项目级版本固定 `.jvmrc`：`jvm pin [版本]` 写入当前目录的 `.jvmrc`，
+  `jvm use` 无参数时从当前目录逐级向上查找并读取（与 .nvmrc / .ruby-version
+  一致，支持 monorepo 子目录）。文件格式为一行 `[distro@]version`（支持 `#`
+  注释）；版本解析链路完全复用现有 `ParseVersionSpec` + `ResolveVersion`，
+  指定版本未安装时报错提示 `jvm install`（不自动下载）。新增 `internal/pinrc`
+  包；为把目录名转成 distro@version，导出 `junction.SplitDistro`。
 
 ## [0.9.0] - 2026-08-11
 

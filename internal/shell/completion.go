@@ -80,7 +80,7 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
     $elements = $commandAst.CommandElements
     $completingSub = ($elements.Count -eq 1) -or ($elements[1].Extent.Text -eq $wordToComplete)
     if ($completingSub) {
-        $cmds = 'install','use','list','ls','available','uninstall','rm','current','doctor','init','upgrade','completion','version','help'
+        $cmds = 'install','use','pin','list','ls','available','uninstall','rm','current','doctor','init','upgrade','completion','version','help'
         $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
@@ -95,7 +95,7 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
         $_jvmDistros | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
-    } elseif ($cmd -in @('use','uninstall','rm')) {
+    } elseif ($cmd -in @('use','pin','uninstall','rm')) {
         _jvmLocalVersions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
@@ -112,7 +112,7 @@ func bashCompletionScript(distros []string) string {
 	return completionMarker + `
 # jvm Tab completion (bash / Git Bash): subcommands, distro@ prefix, local versions.
 _jvm_distros="` + distroStr + `"
-_jvm_commands="install use list ls available uninstall rm current doctor init upgrade completion version help"
+_jvm_commands="install use pin list ls available uninstall rm current doctor init upgrade completion version help"
 
 # Convert local version dir name (distro-version or bare version) to distro@version.
 # Bare dirs (no distro prefix) are treated as temurin.
@@ -155,7 +155,7 @@ _jvm() {
         available)
             COMPREPLY=($(compgen -W "$_jvm_distros" -- "$cur"))
             ;;
-        use|uninstall|rm)
+        use|pin|uninstall|rm)
             COMPREPLY=($(compgen -W "$(_jvm_local_versions)" -- "$cur"))
             ;;
     esac

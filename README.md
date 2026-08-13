@@ -90,6 +90,9 @@ jvm install liberica@21     # 安装 liberica JDK 21 最新版
 jvm install 21.0.12+8       # 安装 temurin 精确版本 (完整版本号, 含 build 号)
 jvm use 21                  # 切换到 21 (大版本号取最新)
 jvm use corretto@21         # 切换到 corretto 21
+jvm use                     # 无参则读当前目录的 .jvmrc 切换版本
+jvm pin corretto@21         # 固定此目录用 corretto 21 (写入 .jvmrc)
+jvm pin                     # 把当前版本写入 .jvmrc (无参用 current)
 jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过)
 
 # 查询
@@ -111,6 +114,26 @@ jvm upgrade                 # 检查并更新 jvm 自身 (需配置仓库)
 jvm version                 # 显示 jvm 版本号
 jvm help                    # 帮助
 ```
+
+## 项目级版本（.jvmrc）
+
+在项目根目录放一个 `.jvmrc` 文件，写上版本号，团队成员（或未来的你）在该目录运行 `jvm use`（不带参数）即可切到指定版本，无需各自记版本号：
+
+```powershell
+# 固定当前项目用 corretto 21 (写入当前目录的 .jvmrc)
+jvm pin corretto@21
+
+# 或手动创建: 项目根目录建 .jvmrc, 内容为一行版本号
+#   21                    # temurin JDK 21 最新
+#   corretto@21.0.12.8.1  # 指定发行版 + 完整版本
+
+# 之后在该项目任意子目录运行 (不带参数即可)
+jvm use
+```
+
+文件格式：一行 `[distro@]version`（与命令行语法一致），支持 `#` 注释行。`jvm use` 无参时会从当前目录**逐级向上**查找最近的 `.jvmrc`，所以子目录也会命中项目根的配置（支持 monorepo）。
+
+> `jvm pin` 只写文件，不切换版本；想立即生效再敲一次 `jvm use`。指定的版本需要先 `jvm install` 安装，`use` 读到未安装的版本会报错提示安装（不会自动下载）。
 
 ## 关于「当前终端立即生效」
 

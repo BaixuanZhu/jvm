@@ -8,7 +8,7 @@ import (
 	"jvm/internal/paths"
 )
 
-// 这些测试覆盖纯函数 splitDistro / MajorOf / pureMajor / versionParts / semverLess。
+// 这些测试覆盖纯函数 SplitDistro / MajorOf / pureMajor / versionParts / semverLess。
 // ResolveVersion 的规则: 纯大版本号 → 取最新 build; 完整版本号 (含 build 号) → 精确匹配。
 // 不接受半截版本号 (跨发行版本号格式不一, 语义模糊)。junction 的 Create/Remove/ReadTarget 依赖 Windows syscall, 暂不测。
 
@@ -36,9 +36,9 @@ func TestSplitDistro(t *testing.T) {
 		{"temurin-", "temurin", "temurin-"}, // version 为空 → 无 distro
 	}
 	for _, tt := range tests {
-		d, v := splitDistro(tt.in)
+		d, v := SplitDistro(tt.in)
 		if d != tt.wantDistro || v != tt.wantVersion {
-			t.Errorf("splitDistro(%q) = (%q, %q), want (%q, %q)", tt.in, d, v, tt.wantDistro, tt.wantVersion)
+			t.Errorf("SplitDistro(%q) = (%q, %q), want (%q, %q)", tt.in, d, v, tt.wantDistro, tt.wantVersion)
 		}
 	}
 }
@@ -335,7 +335,7 @@ func TestDisplayName(t *testing.T) {
 }
 
 // TestMigrateLegacyDirs 覆盖三种目录的处理:
-//   - 遗留 jdk- 前缀目录 → 迁移到纯 semver (回归保护: splitDistro 会把 jdk-21.0.12+8
+//   - 遗留 jdk- 前缀目录 → 迁移到纯 semver (回归保护: SplitDistro 会把 jdk-21.0.12+8
 //     拆成 ("jdk", "21.0.12+8"), 新格式跳过逻辑必须不误伤这种该迁移的目录)
 //   - 纯 semver 旧目录 → 跳过 (已是规范)
 //   - {distro}-{semver} 新目录 → 跳过 (新命名规范)

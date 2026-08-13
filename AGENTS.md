@@ -55,6 +55,7 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 - `internal/doctor/` — `jvm doctor` 环境诊断：目录结构 / junction / JAVA_HOME / PATH 冲突 / shell 集成 / current 的 java / java 版本（实跑 `java -version`）/ 版本目录完整性 / 注册表 PATH 残留 共 9 项，每项输出 ✓/✗ 并附修复建议。检查函数收显式参数、不读全局，便于表驱动测试。
 - `internal/config/` — 用户配置加载（`~/.jvm/config.toml`）：当前覆盖 `mirror`（下载镜像，默认清华 TUNA，仅 temurin 消费）与 `arch`（目标架构，默认跟随 `runtime.GOARCH`：amd64 版 → `x64`，arm64 版 → `aarch64`；五个 provider 均消费 arch）。优先级：环境变量（`JVM_MIRROR`/`JVM_ARCH`）> 配置文件 > 默认值；配置文件缺失视为正常，解析失败警告后回退默认。
 - `internal/paths/` — `~/.jvm` 下目录路径常量（`init()` 里基于 `os.UserHomeDir()` 计算）。
+- `internal/pinrc/` — 项目级版本固定文件 `.jvmrc` 的查找（从 cwd 逐级向上）、解析、写入；`jvm use` 无参时读取、`jvm pin` 写入。版本解析复用 `app.ParseVersionSpec` + `junction.ResolveVersion`，本包不做语义校验。
 - `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client、`CompareVersions` 版本比较、`LatestGitHubTag` release 查询、`NormArch` 架构规范化（`x64`/`aarch64` 规范值 + `amd64`/`arm64` 别名）、`Asset`/`Release`/`VersionSpec` 跨 provider 下载契约）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
 
 运行模型：`~/.jvm/current` 是指向当前选中版本的 junction；PATH 永远指向 `~/.jvm/current/bin`，切换版本 = 重建 junction，故新终端无需刷新环境变量即生效。当前终端即时生效靠 shell 集成函数在 `jvm use` 后于会话内刷新 `JAVA_HOME`/PATH（子进程改不了父 shell 环境，靠 wrapper 函数绕过）。

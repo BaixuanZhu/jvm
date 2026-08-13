@@ -180,7 +180,7 @@ func ListLocal() (names []string, currentTarget string) {
 // 旧的无前缀目录 ("21.0.12+8") 补上 temurin- 前缀; 已带前缀的原样返回。
 // 仅用于展示 (list 输出), 不改磁盘数据。
 func DisplayName(dirName string) string {
-	distro, ver := splitDistro(dirName)
+	distro, ver := SplitDistro(dirName)
 	if ver == "" {
 		return dirName // 无法解析, 原样返回
 	}
@@ -196,7 +196,7 @@ func DisplayName(dirName string) string {
 // build 号), 大版本号取最新 —— 两种形式, 清晰可预测。
 //
 // distro 用于先过滤本地目录集合 (只在该发行版的目录里找);
-// 旧的无 distro 前缀目录 (如 "21.0.12+8") 由 splitDistro 视为 temurin,
+// 旧的无 distro 前缀目录 (如 "21.0.12+8") 由 SplitDistro 视为 temurin,
 // 故 distro=="temurin" 时能命中旧目录, 实现向后兼容。
 func ResolveVersion(distro, input string) (string, error) {
 	names, _ := ListLocal()
@@ -207,7 +207,7 @@ func ResolveVersion(distro, input string) (string, error) {
 	// 先按 distro 过滤: 只保留属于该发行版的目录 (含旧的无前缀目录, 视为 temurin)
 	var cands []string
 	for _, n := range names {
-		if d, _ := splitDistro(n); d == distro {
+		if d, _ := SplitDistro(n); d == distro {
 			cands = append(cands, n)
 		}
 	}
@@ -343,7 +343,7 @@ func MigrateLegacyDirs() error {
 			// 非遗留目录。可能是新的 {distro}-{version} 命名 —— 各发行版版本号格式不一
 			// (Temurin 用 21.0.5+11, Corretto 用 21.0.12.8.1), 不能用固定正则判断。
 			// 这里用 MajorOf: 只要 distro 前缀后能解析出合法大版本号, 就视为有效目录跳过。
-			// 注意必须放在 legacyToNewName 之后 —— splitDistro 会把遗留的 jdk-21.0.12+8
+			// 注意必须放在 legacyToNewName 之后 —— SplitDistro 会把遗留的 jdk-21.0.12+8
 			// 拆出 "jdk" 前缀, 若先判这里会误跳过该迁移的目录。
 			if MajorOf(name) > 0 {
 				continue
@@ -391,7 +391,7 @@ func MigrateLegacyDirs() error {
 	return nil
 }
 
-// splitDistro 把本地版本目录名拆成 (distro, version)。
+// SplitDistro 把本地版本目录名拆成 (distro, version)。
 // 目录命名格式: {distro}-{version}, 如 "temurin-21.0.5+11" → ("temurin", "21.0.5+11")。
 //
 // 规则:
@@ -405,7 +405,7 @@ func MigrateLegacyDirs() error {
 // app.DefaultDistro 兜底, 不影响)。
 //
 // 纯函数, 便于表驱动测试。
-func splitDistro(name string) (distro, version string) {
+func SplitDistro(name string) (distro, version string) {
 	s := strings.TrimSpace(name)
 	if s == "" {
 		return app.DefaultDistro, ""
@@ -435,11 +435,11 @@ func splitDistro(name string) (distro, version string) {
 // 旧的无前缀目录 ("21.0.12+8" → 21, 启动时视为 temurin) 和带 jdk- / jdk
 // 前缀的历史输入 (迁移期的用户手输 / 残留旧目录)。
 //
-// 先用 splitDistro 剥掉 distro 前缀 (若有), 再取开头连续数字。
+// 先用 SplitDistro 剥掉 distro 前缀 (若有), 再取开头连续数字。
 // 导出以供 doctor 包复用 (检查版本目录有效性), 避免解析逻辑重复。
 // 纯函数, 便于表驱动测试。
 func MajorOf(s string) int {
-	_, ver := splitDistro(strings.TrimSpace(s))
+	_, ver := SplitDistro(strings.TrimSpace(s))
 	ver = strings.TrimPrefix(ver, "jdk-")
 	ver = strings.TrimPrefix(ver, "jdk")
 	ver = strings.TrimPrefix(ver, "JDK-")
@@ -482,7 +482,7 @@ func pureMajor(s string) (int, bool) {
 // 便于精确比较。让 "21.0.12+8" 能同时匹配 "temurin-21.0.12+8" 和
 // "jdk-21.0.12+8"。纯函数, 便于测试。
 func stripPrefix(s string) string {
-	_, s = splitDistro(strings.TrimSpace(s))
+	_, s = SplitDistro(strings.TrimSpace(s))
 	s = strings.TrimPrefix(s, "jdk-")
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")
@@ -494,10 +494,10 @@ func stripPrefix(s string) string {
 // 目录名采用 {distro}-{version} 形式 "temurin-21.0.12+8" → [21, 0, 12, 8];
 // 同时容错旧的无前缀目录 ("21.0.12+8") 和带 jdk- / jdk 前缀的历史输入。
 //
-// 先用 splitDistro 剥掉 distro 前缀 (否则 distro 字母段会被 Atoi 成 0, 破坏比较)。
+// 先用 SplitDistro 剥掉 distro 前缀 (否则 distro 字母段会被 Atoi 成 0, 破坏比较)。
 // 纯函数, 便于表驱动测试。
 func versionParts(s string) []int {
-	_, s = splitDistro(strings.TrimSpace(s))
+	_, s = SplitDistro(strings.TrimSpace(s))
 	s = strings.TrimPrefix(s, "jdk-")
 	s = strings.TrimPrefix(s, "jdk")
 	s = strings.TrimPrefix(s, "JDK-")

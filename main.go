@@ -70,10 +70,17 @@ func main() {
 		}
 		cmd.Install(args[0])
 	case "use":
-		if len(args) < 1 {
-			app.Fail("用法: jvm use <[distro@]版本号>  例如: jvm use 21  或  jvm use corretto@21")
+		arg := ""
+		if len(args) >= 1 {
+			arg = args[0]
 		}
-		cmd.Use(args[0])
+		cmd.Use(arg)
+	case "pin":
+		arg := ""
+		if len(args) >= 1 {
+			arg = args[0]
+		}
+		cmd.Pin(arg)
 	case "list", "ls":
 		cmd.List()
 	case "available":
@@ -124,7 +131,8 @@ func usage() {
 
 命令:
   install <[distro@]版本>  安装 JDK (例如: jvm install 21  或  jvm install corretto@21)
-  use <[distro@]版本>      切换到指定版本 (大版本号取最新, 完整版本号精确匹配)
+  use <[distro@]版本>      切换到指定版本 (无参则读 .jvmrc; 大版本号取最新, 完整版本号精确)
+  pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)
   list                     列出本地已安装的版本
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
   uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)
@@ -142,6 +150,8 @@ func usage() {
   jvm install corretto@21     # 安装 corretto JDK 21
   jvm install microsoft@21    # 安装 microsoft JDK 21
   jvm available corretto      # 查看 corretto 可安装版本
+  jvm pin corretto@21         # 固定此目录用 corretto 21 (写入 .jvmrc)
+  jvm use                     # 无参时读 .jvmrc 切换版本
 
 切换原理:
   使用 Windows junction (目录联接), PATH 永远指向 ~/.jvm/current/bin,
