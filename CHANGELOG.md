@@ -8,6 +8,10 @@
 ## [Unreleased]
 
 ### 新增
+
+## [0.10.0] - 2026-08-13
+
+### 新增
 - 项目级版本固定 `.jvmrc`：`jvm pin [版本]` 写入当前目录的 `.jvmrc`，
   `jvm use` 无参数时从当前目录逐级向上查找并读取（与 .nvmrc / .ruby-version
   一致，支持 monorepo 子目录）。文件格式为一行 `[distro@]version`（支持 `#`
@@ -225,7 +229,8 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/BaixuanZhu/jvm/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/BaixuanZhu/jvm/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/BaixuanZhu/jvm/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/BaixuanZhu/jvm/compare/v0.6.1...v0.7.0
