@@ -49,15 +49,30 @@ run() {
 
 # expect <描述> <期望子串>: 断言 LAST_OUT 含期望子串。
 expect() {
-    local desc="$1" needle="$2"
-    if printf '%s' "$LAST_OUT" | grep -q -- "$needle"; then
-        echo "  ✓ $desc"
-    else
-        echo "  ✗ $desc" >&2
-        echo "    期望输出含: $needle" >&2
-        printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
-        exit 1
-    fi
+	local desc="$1" needle="$2"
+	if printf '%s' "$LAST_OUT" | grep -q -- "$needle"; then
+		echo "  ✓ $desc"
+	else
+		echo "  ✗ $desc" >&2
+		echo "    期望输出含: $needle" >&2
+		printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+		exit 1
+	fi
+}
+
+# run_fail <描述> <jvm args...>: 跑 jvm 命令, 期望它失败 (退出非 0); 成功则测试失败。
+# 失败输出仍存 LAST_OUT, 可用 expect 断言错误消息内容。供负向用例 (未知 distro 等)。
+run_fail() {
+	local desc="$1"; shift
+	echo "### $desc ###"
+	local rc=0
+	LAST_OUT="$("$JVM" "$@" 2>&1)" || rc=$?
+	if [ "$rc" -eq 0 ]; then
+		echo "  ✗ 命令预期失败但成功了 (退出 0)" >&2
+		printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+		exit 1
+	fi
+	echo "  ✓ 如期失败 (退出 $rc)"
 }
 
 run "1. version" version
@@ -105,6 +120,26 @@ else
     printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
     exit 1
 fi
+
+echo ""
+echo "--- 负向用例 (命令应拒绝并退出非 0) ---"
+
+run_fail "10. install 未知发行版" install nosuchdistro@21
+expect "提示未知发行版" "未知"
+
+run_fail "11. use 未安装的大版本" use temurin@99
+expect "提示未安装" "没有安装"
+
+run_fail "12. uninstall 不存在的版本" uninstall temurin@99 -y
+expect "提示未找到" "没有"
+
+echo ""
+echo "--- 自更新 (jvm upgrade: 检查 GitHub Release) ---"
+# 放最后: upgrade 在 dev build 版本号与 release 不同时会下载并替换 dist 下的 jvm.exe
+# (replaceSelf 走 .bak 重命名, 处理运行中 exe)。runner 一次性, 替换不影响后续
+# (本步骤已是最后一项)。本地单测难以覆盖 (需真实 Release + 替换二进制), 故放集成测试。
+run "13. upgrade 检查最新版" upgrade
+expect "upgrade 打印最新版本" "最新版本"
 
 echo ""
 echo "🎉 集成测试全部通过"

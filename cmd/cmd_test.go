@@ -1,6 +1,12 @@
 package cmd
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"jvm/internal/app"
+	"jvm/internal/provider"
+)
 
 // TestParseAvailableArgs 覆盖 jvm available 的 flag 解析。
 // Available 的默认表格 / 分组输出依赖网络, 不在单测范围; 这里只测纯函数解析逻辑。
@@ -67,4 +73,45 @@ func TestParseAvailableArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fakeProvider 注入 mock 数据, 供 availableTable/availableGroups 的并发测试。
+// 嵌入 provider.Base 拿 ShortSemver/ResolveReleaseName 默认实现, 只 override 查询方法。
+// 注册到全局 registry (跟随 shell/completion_test 的既有模式), 用唯一名避免冲突。
+type fakeProvider struct {
+	provider.Base
+	name string
+}
+
+func (f fakeProvider) Name() string          { return f.name }
+func (fakeProvider) DisplayName() string     { return "Fake" }
+func (fakeProvider) Available() ([]app.Release, error) {
+	// 多个大版本 → 触发 availableTable/Groups 的多 goroutine 并发
+	return []app.Release{{Major: 17, LTS: true}, {Major: 21, LTS: true}, {Major: 25, LTS: false}}, nil
+}
+func (fakeProvider) LatestPatch(major int) (*app.Asset, error) {
+	return &app.Asset{ReleaseName: fmt.Sprintf("%d.0.1+1", major), Major: major}, nil
+}
+func (fakeProvider) Resolve(app.VersionSpec) (*app.Asset, error) { return nil, nil }
+func (fakeProvider) ListVersions(major int) ([]*app.Asset, error) {
+	return []*app.Asset{
+		{ReleaseName: fmt.Sprintf("%d.0.1+1", major)},
+		{ReleaseName: fmt.Sprintf("%d.0.0+1", major)},
+	}, nil
+}
+
+// TestAvailableTableConcurrent 验证 availableTable 的并发 (sync.WaitGroup + goroutine
+// 各写 rows[i]) 在 -race 下无数据竞争。此前这段并发逻辑零覆盖 (依赖真实 provider 网络,
+// 无法单测); 注入 fake provider 提供 mock 数据后可离线跑。
+func TestAvailableTableConcurrent(t *testing.T) {
+	name := "fake-cmd-table-" + t.Name()
+	provider.Register(fakeProvider{name: name})
+	availableTable(name) // 并发查 LatestPatch; -race 下无竞争报告即通过
+}
+
+// TestAvailableGroupsConcurrent 验证 availableGroups 的并发 (goroutine 各写 groups[i])。
+func TestAvailableGroupsConcurrent(t *testing.T) {
+	name := "fake-cmd-groups-" + t.Name()
+	provider.Register(fakeProvider{name: name})
+	availableGroups(AvailableOptions{All: true}, name)
 }
