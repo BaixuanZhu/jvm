@@ -99,6 +99,23 @@
 - profile 脚本内容改为纯 ASCII (注释英文): 避免 PowerShell 5.1 在中文系统
   上用 GBK 解码非 ASCII 字节导致语法损坏。不在写入端做 BOM 适配。
 
+## [0.5.0] - 2026-08-07
+
+### 新增
+- Provider 抽象层 (`internal/provider/`): 统一各发行版的接口与注册表, 为后续扩展铺路。
+- CLI `[distro@]version` 语法: 指定发行版 (如 `jvm install corretto@21`), 省略前缀默认 temurin。
+- Amazon Corretto (`corretto@`) 与 Microsoft Build of OpenJDK (`microsoft@`) 两个发行版 provider。
+- PowerShell 一键安装脚本 `install.ps1`: 一行命令下载安装, 自动检测系统架构。
+
+### 变更
+- 版本目录命名改为 `{distro}-{version}` (如 `temurin-21.0.12+8`); 旧的无前缀目录视为
+  temurin, 向后兼容。
+- 简化版本号输入语义: 只保留大版本号取最新 + 完整版本号精确匹配两种形式。
+
+### 修复
+- `install.ps1` 在 `iwr | iex` 管道下解析失败: 去掉输出里的 BOM 并改用英文, 避免管道编码问题。
+- `MigrateLegacyDirs` 误把新的 `{distro}-{version}` 目录当成无法识别而跳过。
+
 ## [0.4.1] - 2026-08-07
 
 ### 修复
@@ -196,7 +213,14 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/BaixuanZhu/jvm/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/BaixuanZhu/jvm/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/BaixuanZhu/jvm/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/BaixuanZhu/jvm/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/BaixuanZhu/jvm/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/BaixuanZhu/jvm/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/BaixuanZhu/jvm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/BaixuanZhu/jvm/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/BaixuanZhu/jvm/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/BaixuanZhu/jvm/compare/v0.2.0...v0.3.0
