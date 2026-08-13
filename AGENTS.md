@@ -18,9 +18,9 @@
 - 全部发行资产: `make dist-all`（仅当前 `GOARCH`；双架构由 CI 分别传 `GOARCH=amd64/arm64` 各跑一遍）
 - Clean: `make clean`
 
-发布：打 tag（`git tag v0.1.0 && git push --tags`）触发 `.github/workflows/release.yml`，在 windows-latest **先跑单测 gate（红则中止发版）** 再自动编译（amd64 + arm64 双架构）、打安装器 + 便携 zip 并发 GitHub Release（四 asset + checksums.txt）。ARM64 安装器 stub 为 x86，在 ARM64 Windows 上靠系统内置模拟运行，释放出的 jvm.exe 是 ARM64 原生。
+发布：打 tag（`git tag v0.1.0 && git push --tags`）触发 `.github/workflows/release.yml`，在 windows-latest **先跑单测 gate（红则中止发版）** 再自动编译（amd64 + arm64 双架构）、打安装器 + 便携 zip 并发 GitHub Release（四 asset + checksums.txt）。ARM64 安装器 stub 为 x86，在 ARM64 Windows 上靠系统内置模拟运行，释放出的 jvm.exe 是 ARM64 原生。发版后 `publish-winget` job 用官方 wingetcreate 自动向 `microsoft/winget-pkgs` 提交 manifest 更新 PR（双架构 setup.exe，独立 job 失败不影响发版）；需仓库配 `WINGET_PAT` secret，**首次需手动提交 `BaixuanZhu.jvm` 初始 manifest**（wingetcreate 只能 update 不能 new），此后每次发版自动更新。
 
-CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（`go vet` + `go test` + `go test -race` + `go build`，windows-latest）；真实集成测试（`scripts/integration-test.sh`，跑全 5 发行版的 install/use/list/doctor/uninstall + ARM64 下载链路）仅每周 schedule + 手动 `workflow_dispatch` 触发（下载 ~1GB JDK，重）。集成 job 用 `JVM_HOME` 指向 runner 临时目录隔离文件副作用、`JVM_NO_BOOTSTRAP=1` 关自举（`use` 仍写一次性 runner 的注册表，可接受）。本地手跑集成脚本前注意：`use` 会改本机注册表 JAVA_HOME/PATH。
+CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（`go vet` + `go test` + `go test -race` + `go build`，windows-latest）；真实集成测试（`scripts/integration-test.sh`，跑全 5 发行版的 install/use/list/doctor/uninstall + ARM64 下载链路 + 负向用例（未知 distro / use 未装版本 / uninstall 不存在）+ `jvm upgrade` 端到端）仅每周 schedule + 手动 `workflow_dispatch` 触发（下载 ~1GB JDK，重）。集成 job 用 `JVM_HOME` 指向 runner 临时目录隔离文件副作用、`JVM_NO_BOOTSTRAP=1` 关自举（`use` 仍写一次性 runner 的注册表，可接受）。本地手跑集成脚本前注意：`use` 会改本机注册表 JAVA_HOME/PATH。
 
 **发版前必须更新 `CHANGELOG.md`**：在 `## [Unreleased]` 下方新增 `## [<版本号>] - <YYYY-MM-DD>` 段落，按 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 分类（新增/变更/修复/移除）。CI 的 release workflow 用 awk 从该段落抽取 Release body（抽不到则 Release 页面无说明），漏写会导致 GitHub Release 页面信息缺失。文档/纯测试/重构等非用户可见变更不必记。
 
@@ -81,7 +81,7 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 
 ## Known gotchas
 
-- **测试覆盖**：纯函数表驱动单测（`app` / `asset` / `junction` / `provider` 及各 provider 子包 / `cmd` / `config` / `doctor` / `jdk` / `shell` / `upgrade` / `updatecheck` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流、doctor 各项诊断（临时目录 + 注入值隔离）等逻辑；junction 创建/真实网络请求等 Windows 耦合路径暂无单测，改动时注意人工验证。
+- **测试覆盖**：纯函数表驱动单测（`app` / `asset` / `junction` / `provider` 及各 provider 子包 / `cmd` / `config` / `doctor` / `jdk` / `shell` / `upgrade` / `updatecheck` / `pinrc` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流、doctor 各项诊断（临时目录 + 注入值隔离）等逻辑；junction 创建/删除有 Windows syscall 单测（`junction_windows_test.go`，Create→Remove 往返 + 错误路径），`cmd` 的 `availableTable`/`availableGroups` 并发有 fakeProvider mock 单测（`-race` 验证）。仍无单测、靠集成测试覆盖的：provider 适配器对真实 API 的解析、`jvm upgrade` 真实下载替换自身。
 - **CMD（cmd.exe）不支持** shell 自动集成（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口。
 - `make installer` 依赖 NSIS；release workflow 用 `choco install nsis` 后需显式把 `C:\Program Files (x86)\NSIS` 写入 `GITHUB_PATH`（choco 不自动刷新 job PATH）。
 - `jvm` 启动自举（把自身目录加入用户 PATH + 补全 shell 集成，幂等）**默认仅发行构建执行**。三层关闭机制（见 `internal/app/bootstrap.go` 的 `BootstrapEnabled`）：`make build`/`make run` 的开发产物经 ldflags 注入 `Bootstrap=off`；`JVM_NO_BOOTSTRAP` 环境变量非空；自身 exe 位于系统 Temp 目录（覆盖 `go run` 的 `Temp\go-build*\b001\exe` 临时二进制）。`make build-dist`/`installer`/`release` 产物与直接 `go build` 源码的二进制保持自举。
