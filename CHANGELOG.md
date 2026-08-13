@@ -17,6 +17,9 @@
 - 新增竞态检测：`make test-race`（`go test -race ./...`）本地可用，CI 每次
   push/PR 在单元测试后额外跑一遍 race，锁定 `cmd` 并发查询与 `provider` 注册表
   等路径的正确性。
+- 发版后自动向 `microsoft/winget-pkgs` 提交 winget manifest 更新 PR（用官方
+  wingetcreate，内部自动 fork + 提 PR，双架构 x64/arm64 的 setup.exe）。需在仓库
+  Secrets 配置 `WINGET_PAT`；首次需手动提交 `BaixuanZhu.jvm` 初始 manifest。
 
 ## [0.9.0] - 2026-08-11
 

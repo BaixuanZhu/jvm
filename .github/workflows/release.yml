@@ -123,3 +123,34 @@ jobs:
             dist/jvm-windows-arm64.zip
             dist/checksums.txt
             install.ps1
+
+  # 发版后自动向 microsoft/winget-pkgs 提交 manifest 更新 PR (独立 job, 失败不影响发版)。
+  # 用官方 wingetcreate: 内部自动 fork winget-pkgs + 提 PR, 无需预先 fork。
+  # 首次必须手动向 winget-pkgs 提交 BaixuanZhu.jvm 初始 manifest (wingetcreate 只能 update 不能 new);
+  # 此后每次发版自动 update 双架构 (x64/amd64-setup.exe + arm64-setup.exe)。
+  publish-winget:
+    name: 提交 winget manifest 更新 PR
+    needs: build-and-release
+    runs-on: windows-latest
+    steps:
+      - name: Submit winget manifest update
+        shell: pwsh
+        env:
+          WINGET_PAT: ${{ secrets.WINGET_PAT }}
+        run: |
+          # WINGET_PAT 未配置时跳过 (Secrets 配置后下次发版自动生效)
+          if (-not $env:WINGET_PAT) {
+            Write-Host "⏭️  WINGET_PAT 未配置, 跳过 winget 提交 (在仓库 Secrets 配置后自动生效)"
+            exit 0
+          }
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          Write-Host "发布 winget manifest: BaixuanZhu.jvm 版本 $ver"
+          iwr https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          $base = "https://github.com/${{ github.repository }}/releases/download/v$ver"
+          # -u 双架构: wingetcreate 自动下载 setup.exe、算 SHA256、更新对应 installer 节点
+          .\wingetcreate.exe update BaixuanZhu.jvm `
+            -v $ver `
+            -u "$base/jvm-windows-amd64-setup.exe|x64" `
+               "$base/jvm-windows-arm64-setup.exe|arm64" `
+            -t $env:WINGET_PAT `
+            -s
