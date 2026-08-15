@@ -1,8 +1,15 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"jvm/internal/app"
+	"jvm/internal/paths"
+	"jvm/internal/provider"
 )
 
 func TestGroupInstalled(t *testing.T) {
@@ -88,5 +95,86 @@ func TestPrintOutdatedMixed(t *testing.T) {
 	// 已最新的 corretto 不应出现"可升级"行
 	if strings.Contains(out, "corretto@21") {
 		t.Errorf("已最新的组不应列出: %q", out)
+	}
+}
+
+// === Outdated() 全流程 (临时版本目录 + 可控 fake provider) ===
+
+// withTempVersions 把 paths 的根/版本目录/current 链接临时指向临时目录并恢复。
+// Outdated 链路里的 junction.ListLocal/ReadTarget 读这些全局 (config 测试的
+// withTempRoot 同款模式)。只读目录 + 打印, 不写注册表, 本地 make test 安全。
+func withTempVersions(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	origRoot, origVersions, origCurrent := paths.Root, paths.VersionsDir, paths.CurrentLink
+	paths.Root = dir
+	paths.VersionsDir = filepath.Join(dir, "versions")
+	paths.CurrentLink = filepath.Join(dir, "current")
+	t.Cleanup(func() {
+		paths.Root, paths.VersionsDir, paths.CurrentLink = origRoot, origVersions, origCurrent
+	})
+	return dir
+}
+
+// outdatedFakeProvider 按大版本返回可控的 LatestPatch 结果, 供 Outdated() 全流程
+// 离线跑: 21 → 有新版 (可升级), 17 → 已最新, 25 → 查询失败。三个分支全覆盖,
+// 且并发扇出在 -race 下验证 (与 availableTable/Groups 的 fakeProvider 同款手法)。
+type outdatedFakeProvider struct {
+	provider.Base
+	name    string
+	latest  map[int]string
+	failing map[int]bool
+}
+
+func (f outdatedFakeProvider) Name() string      { return f.name }
+func (outdatedFakeProvider) DisplayName() string { return "OutdatedFake" }
+func (outdatedFakeProvider) Available() ([]app.Release, error) {
+	return nil, nil
+}
+func (f outdatedFakeProvider) LatestPatch(major int) (*app.Asset, error) {
+	if f.failing[major] {
+		return nil, fmt.Errorf("网络错误")
+	}
+	if v, ok := f.latest[major]; ok {
+		return &app.Asset{ReleaseName: v, Major: major}, nil
+	}
+	return &app.Asset{ReleaseName: fmt.Sprintf("%d.0.0+1", major), Major: major}, nil
+}
+func (outdatedFakeProvider) Resolve(app.VersionSpec) (*app.Asset, error) { return nil, nil }
+func (outdatedFakeProvider) ListVersions(int) ([]*app.Asset, error)      { return nil, nil }
+
+func TestOutdatedEndToEnd(t *testing.T) {
+	root := withTempVersions(t)
+	// provider 名与目录名前缀须一致且不含 "-" (SplitDistro 按第一个 "-" 切前缀)
+	name := "fakeod" + t.Name()
+	mkdirVersion := func(dir string) {
+		if err := os.MkdirAll(filepath.Join(root, "versions", dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkdirVersion(name + "-21.0.5+11") // 21: 本地旧 patch → 可升级
+	mkdirVersion(name + "-17.0.9+2")  // 17: 本地即最新 → 不列出
+	mkdirVersion(name + "-25.0.1+1")  // 25: 查询失败 → 警告行
+
+	provider.Register(outdatedFakeProvider{
+		name:    name,
+		latest:  map[int]string{21: "21.0.8+7", 17: "17.0.9+2"},
+		failing: map[int]bool{25: true},
+	})
+
+	out := captureStdout(t, Outdated)
+	for _, want := range []string{
+		"可升级的版本",
+		name + "@21    21.0.5+11 → 21.0.8+7",
+		"jvm install " + name + "@21",
+		"查询失败",
+		name + "@25",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("输出缺少 %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, name+"@17") {
+		t.Errorf("已最新的 17 组不应列出:\n%s", out)
 	}
 }

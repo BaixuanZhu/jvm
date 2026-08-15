@@ -24,7 +24,7 @@ jobs:
       - name: go test
         run: go test ./...
       - name: go test -race (竞态检测)
-        # -race 锁定 cmd.availableTable/availableGroups 与 provider 注册表等并发路径。
+        # -race 锁定 cmd.availableTable/availableGroups/outdated 与 provider 注册表等并发路径。
         # 全 mock 测试体量小, windows-latest 支持 -race, 增量耗时可控。
         run: go test -race ./...
       - name: go build 自检
