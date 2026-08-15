@@ -96,6 +96,7 @@ jvm use                     # 无参则读当前目录的 .jvmrc 切换版本
 jvm pin corretto@21         # 固定此目录用 corretto 21 (写入 .jvmrc)
 jvm pin                     # 把当前版本写入 .jvmrc (无参用 current)
 jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过)
+jvm exec 17 -- mvn test     # 用 JDK 17 执行命令 (不动全局版本; 无版本号则读 .jvmrc)
 
 # 查询
 jvm list                    # 已安装版本 (→ 标记当前)
@@ -104,7 +105,9 @@ jvm available corretto      # 查看 corretto 可安装版本
 jvm available -a            # 列出每个大版本的全部子版本
 jvm available --major 21    # 只看 JDK 21 的全部子版本
 jvm current                 # 当前版本 (会实际执行 java -version)
+jvm outdated                # 检查已安装版本是否有新 patch 可升级
 jvm doctor                  # 诊断环境配置 (PATH/junction/JAVA_HOME/shell 集成)
+jvm doctor --fix            # 诊断 + 自动修复可修项 (PATH 残留删除前逐条确认, -y 跳过)
 
 # Shell 集成 (当前终端立即生效)
 jvm init powershell         # 打印 PowerShell 集成脚本
@@ -136,6 +139,21 @@ jvm use
 文件格式：一行 `[distro@]version`（与命令行语法一致），支持 `#` 注释行。`jvm use` 无参时会从当前目录**逐级向上**查找最近的 `.jvmrc`，所以子目录也会命中项目根的配置（支持 monorepo）。
 
 > `jvm pin` 只写文件，不切换版本；想立即生效再敲一次 `jvm use`。指定的版本需要先 `jvm install` 安装，`use` 读到未安装的版本会报错提示安装（不会自动下载）。
+
+### cd 自动切换
+
+装了新版集成脚本后（升级 jvm 即自动重写 profile 获得），**cd 进含 `.jvmrc` 的目录会自动切到该版本，cd 出去自动恢复**你之前手动选的版本：
+
+```powershell
+jvm use 21          # 手动选定 21
+cd D:\proj\legacy   # 该目录有 .jvmrc (内容 8) → 自动切到 8
+cd ~                # 离开项目 → 自动恢复 21
+```
+
+- 目录和 `.jvmrc` 没变时零开销（双层缓存，不会每次按回车都拉起 jvm）
+- `.jvmrc` 指定的版本未安装时提示一行 `jvm install` 建议，不刷屏
+- 手动 `jvm use` 永远优先：显式切换后即成为新的恢复基线
+- 不喜欢此行为？在 `~/.jvm/config.toml` 设 `autoswitch = false`（或临时 `JVM_AUTOSWITCH=0`）关闭
 
 ## 关于「当前终端立即生效」
 
@@ -176,6 +194,9 @@ mirror = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
 
 # 目标架构 (默认跟随 jvm 二进制架构; 也接受别名 amd64/arm64)。
 arch = "aarch64"
+
+# .jvmrc 目录自动切换 (默认开启; cd 进含 .jvmrc 的目录自动切版本, 离开恢复)。
+autoswitch = true
 ```
 
 各发行版的 Windows ARM64 (aarch64) 支持情况：
@@ -193,6 +214,7 @@ arch = "aarch64"
 ```powershell
 $env:JVM_MIRROR = "https://your.mirror/Adoptium"
 $env:JVM_ARCH = "aarch64"
+$env:JVM_AUTOSWITCH = "0"    # 临时关闭 .jvmrc 自动切换
 jvm install 21
 ```
 

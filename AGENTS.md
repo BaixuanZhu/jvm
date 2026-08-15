@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。**仅支持 Windows（x64 / ARM64）**。
+`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。命令面：install / use（无参读 `.jvmrc`，集成钩子下 cd 自动切换）/ pin / uninstall / list / available / outdated（patch 升级检查）/ current / exec（指定版本一次性执行，不动全局）/ doctor（`--fix` 自动修复）/ init / completion / upgrade。**仅支持 Windows（x64 / ARM64）**。
 
 ## Setup commands
 
@@ -38,7 +38,7 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 
 ## Architecture
 
-命令路由在 `main.go`（纯 switch，无框架），各子命令实现在 `cmd` 包（编排层：解析参数 → 调底层包 → 输出），基础设施按职责拆在 `internal/`：
+命令路由在 `main.go`（纯 switch，无框架），各子命令实现在 `cmd` 包（编排层：解析参数 → 调底层包 → 输出；`cmd.go` 主体 + 按命令分文件 `exec.go`/`outdated.go`/`auto.go`），基础设施按职责拆在 `internal/`：
 
 - `internal/provider/` — **Provider 抽象层**：核心接口（`Name`/`DisplayName`/`Available`/`Resolve`/`LatestPatch`/`ListVersions`）+ `Base` 基类（默认实现）+ 注册表（`Register`/`Get`/`All`）+ **`Configurable` 可选接口与 `ConfigureAll(arch, mirror)` 分发**（provider 实现 `Configurable` 即在启动时自动接收全局目标架构/镜像，main.go 无需改动；temurin 两者都用，corretto/microsoft/zulu/liberica 只用 arch）。各发行版适配器嵌入 `Base` 按需 override。新公共 provider 逻辑优先放这里或 `internal/app/`，而非塞进某个业务包。
 - `internal/provider/temurin/` — Temurin (Adoptium) 适配器：Adoptium API 查大版本/最新 GA/精确版本，解析官方 CDN 直链与清华镜像 URL（轻量 JSON 走官方 API，大文件下载走镜像）。支持 x64 / aarch64；**注意上游 Windows ARM64 覆盖不全**（如 21 有、17/25 暂无，Adoptium API 对缺失组合返回 404），查询错误消息统一带 `(windows/{arch})` 上下文便于定位。
@@ -48,17 +48,17 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 - `internal/provider/liberica/` — BellSoft Liberica 适配器：BellSoft Product Discovery API 一次拉该架构全量 JDK zip（API 无 feature 过滤，客户端按 `latestInFeatureVersion`/`featureVersion` 过滤），**官方仅提供 sha1**（无 sha256）故用 SHA1 做完整性校验（`Asset.ChecksumAlgo="sha1"`），下载直链自拼 `download.bell-sw.com` 官方 CDN（替代 API 返回的 GitHub 域）。x64 / aarch64 均支持（API `arch=arm&bitness=64`）。
 - `internal/jdk/` — 下载、完整性校验（SHA256/SHA1，按 provider 提供）、解压、原子替换到 `~/.jvm/versions/`（发行版无关，只认 `*app.Asset`）。
 - `internal/junction/` — Windows junction 创建/删除/解析，用**原生 syscall**（`FSCTL_SET_REPARSE_POINT`），不调 `cmd.exe`（避免注入面）。
-- `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH。
-- `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）；profile 路径走 `KnownFolderPath`（`FOLDERID_Documents`/`FOLDERID_Profile`），兼容 Documents 目录重定向。
+- `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH；`RemoveFromUserPath` 供 doctor --fix 清理旧 JDK 残留条目（大小写不敏感、`filepath.Clean` 后匹配，纯逻辑在 `filterUserPath` 供表测）。
+- `internal/shell/` — PowerShell/bash 集成脚本生成 + 写入 `$PROFILE`/`~/.bashrc`（幂等，缺失才补）；profile 路径走 `KnownFolderPath`（`FOLDERID_Documents`/`FOLDERID_Profile`），兼容 Documents 目录重定向。集成脚本 v2 除 `jvm use` 会话刷新 wrapper 外还含 **`.jvmrc` 自动切换钩子**（PowerShell 包装 `prompt`、bash 挂 `PROMPT_COMMAND` 前插 + case 守卫防重复；双层缓存——目录/rc 未变零开销；脚本纯 ASCII 防 PS 5.1 GBK 解码损坏）。集成块内嵌 `jvm-integration: v2` 版本 token，`EnsureIntegration` 对缺 token 的老块自动重写升级（`ensureBlockVersioned`），补全块仍只按 marker 存在性判断；**改集成脚本内容必须递增 token**，否则老用户拿不到新钩子。
 - `internal/upgrade/` — 走 GitHub Release 自更新。
 - `internal/updatecheck/` — 启动时静默检查 GitHub 新版本（24h 节流，落后才提示，失败永不阻断）；只依赖 `app`，不依赖 `upgrade`（检查提示与执行升级职责分离）。
-- `internal/doctor/` — `jvm doctor` 环境诊断：目录结构 / junction / JAVA_HOME / PATH 冲突 / shell 集成 / current 的 java / java 版本（实跑 `java -version`）/ 版本目录完整性 / 注册表 PATH 残留 共 9 项，每项输出 ✓/✗ 并附修复建议。检查函数收显式参数、不读全局，便于表驱动测试。
-- `internal/config/` — 用户配置加载（`~/.jvm/config.toml`）：当前覆盖 `mirror`（下载镜像，默认清华 TUNA，仅 temurin 消费）与 `arch`（目标架构，默认跟随 `runtime.GOARCH`：amd64 版 → `x64`，arm64 版 → `aarch64`；五个 provider 均消费 arch）。优先级：环境变量（`JVM_MIRROR`/`JVM_ARCH`）> 配置文件 > 默认值；配置文件缺失视为正常，解析失败警告后回退默认。
-- `internal/paths/` — `~/.jvm` 下目录路径常量（`init()` 里基于 `os.UserHomeDir()` 计算）。
-- `internal/pinrc/` — 项目级版本固定文件 `.jvmrc` 的查找（从 cwd 逐级向上）、解析、写入；`jvm use` 无参时读取、`jvm pin` 写入。版本解析复用 `app.ParseVersionSpec` + `junction.ResolveVersion`，本包不做语义校验。
+- `internal/doctor/` — `jvm doctor` 环境诊断：目录结构 / junction / JAVA_HOME / PATH 冲突 / shell 集成 / current 的 java / java 版本（实跑 `java -version`）/ 版本目录完整性 / 用户 PATH（注册表是否含 current/bin）/ 注册表 PATH 残留 共 10 项，每项输出 ✓/✗ 并附修复建议。检查函数收显式参数、不读全局，便于表驱动测试。`doctor --fix`（`Run(fix, assumeYes)`）对失败项执行修复映射：目录/junction 重建到最新已装（非空普通目录跳过）/JAVA_HOME/集成与补全注入/用户 PATH 补 current/bin 自动修，PATH 残留逐条 y/N 确认后经 `env.RemoveFromUserPath` 删除（`-y` 跳过），需重装/动系统 PATH 的项只保留建议；残留检测提取为 `ResidueEntries` 供诊断与修复同源。
+- `internal/config/` — 用户配置加载（`~/.jvm/config.toml`）：覆盖 `mirror`（下载镜像，默认清华 TUNA，仅 temurin 消费）、`arch`（目标架构，默认跟随 `runtime.GOARCH`：amd64 版 → `x64`，arm64 版 → `aarch64`；五个 provider 均消费 arch）、`autoswitch`（`.jvmrc` 自动切换，默认 true；文件解析用 `fileConfig` 的 `*bool` 区分未设置与显式 false）。优先级：环境变量（`JVM_MIRROR`/`JVM_ARCH`/`JVM_AUTOSWITCH`，布尔走 `strconv.ParseBool`，非法值警告后忽略）> 配置文件 > 默认值；配置文件缺失视为正常，解析失败警告后回退默认。
+- `internal/paths/` — `~/.jvm` 下目录路径常量（`init()` 里基于 `os.UserHomeDir()` 计算）；`AutoStateFile`（`~/.jvm/auto-state`）记录 `.jvmrc` 自动切换前的手动版本目录名，供离开 `.jvmrc` 目录时恢复，显式 `jvm use` 会清掉它。
+- `internal/pinrc/` — 项目级版本固定文件 `.jvmrc` 的查找（从 cwd 逐级向上）、解析、写入；`jvm use` 无参与 `jvm exec` 无版本号时读取、`jvm pin` 写入、shell 自动切换钩子触发 `jvm use --auto` 时由 `cmd/auto.go` 消费。版本解析复用 `app.ParseVersionSpec` + `junction.ResolveVersion`，本包不做语义校验。
 - `internal/app/` — **共享基础设施层**（版本号、`Fail`、版本解析、统一 HTTP client、`CompareVersions` 版本比较、`LatestGitHubTag` release 查询、`NormArch` 架构规范化（`x64`/`aarch64` 规范值 + `amd64`/`arm64` 别名）、`Asset`/`Release`/`VersionSpec` 跨 provider 下载契约）；存在目的是被几乎所有业务包依赖以**避免循环依赖**——新公共逻辑优先放这里，而非塞进某个业务包。
 
-运行模型：`~/.jvm/current` 是指向当前选中版本的 junction；PATH 永远指向 `~/.jvm/current/bin`，切换版本 = 重建 junction，故新终端无需刷新环境变量即生效。当前终端即时生效靠 shell 集成函数在 `jvm use` 后于会话内刷新 `JAVA_HOME`/PATH（子进程改不了父 shell 环境，靠 wrapper 函数绕过）。
+运行模型：`~/.jvm/current` 是指向当前选中版本的 junction；PATH 永远指向 `~/.jvm/current/bin`，切换版本 = 重建 junction，故新终端无需刷新环境变量即生效。当前终端即时生效靠 shell 集成函数在 `jvm use` 后于会话内刷新 `JAVA_HOME`/PATH（子进程改不了父 shell 环境，靠 wrapper 函数绕过）。`.jvmrc` 自动切换叠加在此模型上：shell 钩子在 rc 变化时调 `jvm use --auto`（`cmd/auto.go`，纯决策 `decideAuto` + `auto-state` 状态机），cd 进含 `.jvmrc` 的目录自动切、离开恢复手动基线；`jvm exec` 则完全绕开 junction，只在子进程 env 里注入指定版本的 JAVA_HOME/bin（批处理经 `cmd.exe /c` 分发）。
 
 ## Hard constraints
 
@@ -81,8 +81,8 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 
 ## Known gotchas
 
-- **测试覆盖**：纯函数表驱动单测（`app` / `asset` / `junction` / `provider` 及各 provider 子包 / `cmd` / `config` / `doctor` / `jdk` / `shell` / `upgrade` / `updatecheck` / `pinrc` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流、doctor 各项诊断（临时目录 + 注入值隔离）等逻辑；junction 创建/删除有 Windows syscall 单测（`junction_windows_test.go`，Create→Remove 往返 + 错误路径），`cmd` 的 `availableTable`/`availableGroups` 并发有 fakeProvider mock 单测（`-race` 验证）。仍无单测、靠集成测试覆盖的：provider 适配器对真实 API 的解析、`jvm upgrade` 真实下载替换自身。
-- **CMD（cmd.exe）不支持** shell 自动集成（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口。
+- **测试覆盖**：纯函数表驱动单测（`app` / `asset` / `junction` / `provider` 及各 provider 子包 / `cmd` / `config` / `doctor` / `jdk` / `shell` / `upgrade` / `updatecheck` / `pinrc` 包），覆盖版本解析、distro@ 语法、URL/版本号提取、路径转换、注册表、profile 块移除、下载重试/断点续传（httptest 模拟）、更新检查节流、doctor 各项诊断（临时目录 + 注入值隔离）、`exec` 的 env 构建与批处理分发（临时目录实跑）、`outdated` 分组与输出分类、自动切换决策 `decideAuto`/state 文件 IO、集成块版本化重写 `ensureBlockVersioned`、`filterUserPath`/`ResidueEntries`/`junctionFixPlan` 等逻辑；junction 创建/删除有 Windows syscall 单测（`junction_windows_test.go`，Create→Remove 往返 + 错误路径），`cmd` 的 `availableTable`/`availableGroups`/`outdated` 并发有 fakeProvider mock 单测（`-race` 验证）。仍无自动化测试、靠集成测试或人工验证的：provider 适配器对真实 API 的解析、`jvm upgrade` 真实下载替换自身、shell 自动切换钩子的真机行为（开发时用 stub 方式人工验证过 PS/bash 各触发点，无自动化）。
+- **CMD（cmd.exe）不支持** shell 自动集成与 `.jvmrc` 自动切换（doskey 体验差），仅 PowerShell 与 bash；CMD 用户需重开窗口，或用 `jvm exec`/`jvm use` 显式操作。
 - `make installer` 依赖 NSIS；release workflow 用 `choco install nsis` 后需显式把 `C:\Program Files (x86)\NSIS` 写入 `GITHUB_PATH`（choco 不自动刷新 job PATH）。
 - `jvm` 启动自举（把自身目录加入用户 PATH + 补全 shell 集成，幂等）**默认仅发行构建执行**。三层关闭机制（见 `internal/app/bootstrap.go` 的 `BootstrapEnabled`）：`make build`/`make run` 的开发产物经 ldflags 注入 `Bootstrap=off`；`JVM_NO_BOOTSTRAP` 环境变量非空；自身 exe 位于系统 Temp 目录（覆盖 `go run` 的 `Temp\go-build*\b001\exe` 临时二进制）。`make build-dist`/`installer`/`release` 产物与直接 `go build` 源码的二进制保持自举。
   - 开发调试放心跑 `./dist/<arch>/jvm.exe ...`，不会污染全局 `jvm`。

@@ -9,6 +9,27 @@
 
 ### 新增
 
+- `jvm exec <[distro@]版本> -- <命令>`：用指定版本在子进程环境里执行命令，不动全局
+  current junction（一次性多版本测试与 CI 脚本场景，如 `jvm exec 17 -- mvn test`）。
+  无版本号时读 `.jvmrc` 再退到当前版本；只解析本地已装版本，不自动下载；
+  `java`/`javac` 优先在该版本 bin 内解析（不依赖系统 PATH），批处理
+  （`.bat`/`.cmd`，如 mvn/gradlew）经 `cmd.exe /c` 分发，子进程退出码原样传播。
+- `jvm outdated`：检查已装版本 patch 更新——按（发行版, 大版本）分组并发查各
+  provider 的 `LatestPatch`，列出可升级行（如 `temurin@21  21.0.5+11 → 21.0.8+7`）
+  并提示升级命令（不同 patch 为不同目录名，`jvm install` 并列安装不冲突，无需
+  重装参数）。
+- `jvm doctor --fix`：诊断报告后对失败项执行自动修复——目录结构 / current 链接
+  重建到最新已装版本（current 为非空普通目录时跳过，不删用户数据）/ JAVA_HOME /
+  shell 集成与补全注入 / 用户 PATH 补 current/bin；注册表 PATH 里的旧 JDK 残留
+  逐条 y/N 确认后移除（`doctor --fix -y` 跳过确认）。同时新增第 10 项检查
+  「用户 PATH」（注册表用户 PATH 是否含 current/bin，原来只查进程 PATH）。
+- `.jvmrc` 目录自动切换：shell 集成脚本 v2（PowerShell 包装 prompt / bash 挂
+  PROMPT_COMMAND，双层缓存，目录与 rc 未变时零开销）在 `.jvmrc` 变化时自动执行
+  `jvm use --auto` —— cd 进含 `.jvmrc` 的目录自动切到该版本，cd 出去恢复切换前的
+  手动版本（`~/.jvm/auto-state` 记基线，显式 `jvm use` 即新基线会清掉）。
+  默认开启，`config.toml` 设 `autoswitch = false`（或 `JVM_AUTOSWITCH=0`）关闭；
+  集成块带版本 token，老用户升级 jvm 后由启动自举自动重写 profile 拿到新钩子。
+
 ## [0.10.0] - 2026-08-13
 
 ### 新增
