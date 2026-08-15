@@ -89,6 +89,8 @@ func main() {
 			app.Fail(err.Error())
 		}
 		cmd.Available(opts)
+	case "outdated":
+		cmd.Outdated()
 	case "uninstall", "rm":
 		cmd.Uninstall(args)
 	case "current":
@@ -137,6 +139,7 @@ func usage() {
   pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)
   list                     列出本地已安装的版本
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
+  outdated                 检查已安装版本是否有新 patch 可升级
   uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)
   current                  显示当前正在使用的版本
   exec <版本> -- <命令>    用指定版本执行命令, 不动全局 (例如: jvm exec 17 -- mvn test)
