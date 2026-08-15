@@ -68,6 +68,7 @@ func Use(arg string) {
 	if err := switchTo(target); err != nil {
 		app.Fail(err.Error())
 	}
+	clearAutoState() // 显式切换即新的手动基线, 清掉自动切换的待恢复状态
 
 	fmt.Printf("✅ 已切换到 %s\n", display)
 	fmt.Println()

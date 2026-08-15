@@ -25,10 +25,16 @@ var VersionsDir string
 // CurrentLink 是 junction 路径, 始终指向当前选中的版本: ~/.jvm/current
 var CurrentLink string
 
+// AutoStateFile 记录 .jvmrc 自动切换前的手动版本目录名 (~/.jvm/auto-state):
+// cd 进含 .jvmrc 的目录时自动切换前先记下当时的版本, 离开 (cd 到无 .jvmrc
+// 的目录) 时据此恢复。显式 jvm use 会清掉它 (手动选择即新基线)。
+var AutoStateFile string
+
 func init() {
 	Root = calcRoot()
 	VersionsDir = filepath.Join(Root, "versions")
 	CurrentLink = filepath.Join(Root, "current")
+	AutoStateFile = filepath.Join(Root, "auto-state")
 }
 
 // calcRoot 返回 jvm 根目录: 优先 JVM_HOME 环境变量 (便于 CI / 集成测试把整个

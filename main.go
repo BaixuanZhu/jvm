@@ -70,6 +70,11 @@ func main() {
 		}
 		cmd.Install(args[0])
 	case "use":
+		// --auto 由 shell 集成钩子调用 (cd 进/离开 .jvmrc 目录时), 用户不直接敲
+		if len(args) >= 1 && args[0] == "--auto" {
+			cmd.UseAuto(cfg.AutoSwitch)
+			return
+		}
 		arg := ""
 		if len(args) >= 1 {
 			arg = args[0]
@@ -145,6 +150,7 @@ func usage() {
 命令:
   install <[distro@]版本>  安装 JDK (例如: jvm install 21  或  jvm install corretto@21)
   use <[distro@]版本>      切换到指定版本 (无参则读 .jvmrc; 大版本号取最新, 完整版本号精确)
+                           cd 进含 .jvmrc 的目录时自动切换 (config.toml 设 autoswitch=false 关闭)
   pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)
   list                     列出本地已安装的版本
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)

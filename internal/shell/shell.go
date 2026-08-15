@@ -22,15 +22,21 @@ import (
 // profileMarker 是写入 profile 的注入块标记, 用于幂等检测
 const profileMarker = "# >>> jvm shell init >>>"
 
+// integrationVersionToken 是集成块的版本标记 (嵌在块内)。
+// 幂等检测对集成块额外比较此 token: 老块没有 token (或 token 过期) 时自动重写,
+// 保证升级 jvm 后老用户能拿到新钩子 (纯 marker 检测只判存在不比内容,
+// 补全块沿用旧策略不变)。改集成脚本内容时同步递增此 token。
+const integrationVersionToken = "# jvm-integration: v2"
+
 // EnsureIntegration 静默确保 shell 集成与 Tab 补全已安装到 PowerShell 和 bash 的 profile。
 // 幂等 (已注入跳过)、静默 (正常无输出)、容错 (失败不中断)。
 //
 // shell 集成和补全是两个独立的关注点, 各用独立的 profile 标记块, 互不影响升级。
 //
-// 注意: 幂等检测以 marker 是否存在为准, 不比较内容。这意味着补全脚本内容变更后
-// (如新增发行版、修 bug), 已有 profile 不会自动刷新 —— 用户需手动删掉 marker 块
-// 或运行 `jvm completion <shell> --install` 强制重写。这与 shell 集成块的行为一致。
-// distro 列表在生成补全脚本时从 provider 注册表读取并嵌入。
+// 集成块带 integrationVersionToken 版本标记: 老版本块自动重写升级 (v2 起含
+// .jvmrc 自动切换钩子); 补全块仍以 marker 存在与否为准 —— 内容变更后用户需
+// 手动 `jvm completion <shell> --install` 强制重写。distro 列表在生成补全脚本时
+// 从 provider 注册表读取并嵌入。
 func EnsureIntegration() {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -39,21 +45,36 @@ func EnsureIntegration() {
 	distros := distroNames()
 	// PowerShell 5.x + 7+ 两个 profile 都写
 	for _, p := range []string{psProfilePath(), ps7ProfilePath()} {
-		if !profileHasIntegration(p) {
-			_ = installToProfile(p, psScript(exePath))
-		}
+		ensureBlockVersioned(p, psScript(exePath))
 		if !completionHasIntegration(p) {
 			_ = installToProfile(p, psCompletionScript(distros))
 		}
 	}
 	// Git Bash
 	bp := bashProfilePath()
-	if !profileHasIntegration(bp) {
-		_ = installToProfile(bp, bashScript(exePath))
-	}
+	ensureBlockVersioned(bp, bashScript(exePath))
 	if !completionHasIntegration(bp) {
 		_ = installToProfile(bp, bashCompletionScript(distros))
 	}
+}
+
+// ensureBlockVersioned 确保某 profile 的集成块存在且为当前版本:
+// 没有块 → 写入; 有块但缺当前版本 token → 按标记换块重写。
+// 提取成独立函数 (显式路径参数) 便于用临时 profile 做测试。
+func ensureBlockVersioned(profilePath, script string) {
+	if profileHasIntegration(profilePath) && blockHasVersionToken(profilePath) {
+		return
+	}
+	_ = installToProfile(profilePath, script)
+}
+
+// blockHasVersionToken 检查 profile 是否包含当前版本的集成块 token。
+func blockHasVersionToken(profilePath string) bool {
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), integrationVersionToken)
 }
 
 // completionHasIntegration 检测某个 profile 文件是否已注入 jvm 补全块。
@@ -264,9 +285,14 @@ func profileHasIntegration(profilePath string) bool {
 	return strings.Contains(string(data), profileMarker)
 }
 
-// psScript 返回 PowerShell 集成脚本, exePath 硬编码进脚本使函数不依赖 PATH
+// psScript 返回 PowerShell 集成脚本, exePath 硬编码进脚本使函数不依赖 PATH。
+// v2 起含 .jvmrc 自动切换: 包装 prompt 函数, cwd 变化时向上找 .jvmrc,
+// 找到的 rc 目录变化时调 `jvm use --auto` (走上面的 wrapper, 会话 env 自动刷新)。
+// 双层缓存 (上次目录 / 上次 rc) 保证 exe 只在真正变化时才被拉起。
+// 脚本保持纯 ASCII (PS 5.1 在中文系统上按 GBK 解码非 ASCII 字节会损坏语法)。
 func psScript(exePath string) string {
 	return profileMarker + `
+# jvm-integration: v2
 # jvm shell integration: make ` + "`jvm use`" + ` take effect in the current terminal
 function jvm {
     & '` + exePath + `' @args
@@ -278,13 +304,42 @@ function jvm {
         $env:PATH = "$bin;$env:PATH"
     }
 }
+# auto-switch: when the .jvmrc found upward from cwd changes, run ` + "`jvm use --auto`" + `
+$global:__jvm_last_dir = $null
+$global:__jvm_last_rc = $null
+$global:__jvm_orig_prompt = $function:prompt
+function global:prompt {
+    try {
+        if ($global:__jvm_last_dir -ne $PWD.Path) {
+            $global:__jvm_last_dir = $PWD.Path
+            $d = $PWD.Path
+            $rc = $null
+            while ($true) {
+                if (Test-Path -LiteralPath (Join-Path $d '.jvmrc') -PathType Leaf) { $rc = $d; break }
+                $parent = Split-Path $d -ErrorAction SilentlyContinue
+                if (-not $parent -or $parent -eq $d) { break }
+                $d = $parent
+            }
+            if ($rc -ne $global:__jvm_last_rc) {
+                $global:__jvm_last_rc = $rc
+                jvm use --auto
+            }
+        }
+    } catch { }
+    if ($null -ne $global:__jvm_orig_prompt) { & $global:__jvm_orig_prompt }
+    else { "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
+}
 # <<< jvm shell init <<<`
 }
 
-// bashScript 返回 bash 集成脚本, exePath 硬编码 (转 MSYS 路径)
+// bashScript 返回 bash 集成脚本, exePath 硬编码 (转 MSYS 路径)。
+// v2 起含 .jvmrc 自动切换: PROMPT_COMMAND 钩子 (前插, case 守卫防重复追加,
+// 不覆盖 git-prompt 等已有钩子), cwd 变化时向上找 .jvmrc, rc 变化时调
+// `jvm use --auto` (走上面的 wrapper, 会话 env 自动刷新)。纯 ASCII。
 func bashScript(exePath string) string {
 	bashPath := toMSYSPath(exePath)
 	return profileMarker + `
+# jvm-integration: v2
 # jvm shell integration: make ` + "`jvm use`" + ` take effect in the current terminal
 jvm() {
     command "` + bashPath + `" "$@"
@@ -294,6 +349,25 @@ jvm() {
         export PATH="$bin:$(echo "$PATH" | tr ':' '\n' | grep -v "^${bin}$" | tr '\n' ':' | sed 's/:$//')"
     fi
 }
+# auto-switch: when the .jvmrc found upward from cwd changes, run ` + "`jvm use --auto`" + `
+__jvm_autoswitch() {
+    [ "${__jvm_last_dir:-}" = "$PWD" ] && return 0
+    __jvm_last_dir="$PWD"
+    local d="$PWD" rc=""
+    while [ "$d" != "/" ]; do
+        if [ -f "$d/.jvmrc" ]; then rc="$d"; break; fi
+        d=$(dirname "$d")
+    done
+    if [ "$rc" != "${__jvm_last_rc:-}" ]; then
+        __jvm_last_rc="$rc"
+        jvm use --auto
+    fi
+    return 0
+}
+case ";${PROMPT_COMMAND:-};" in
+    *";__jvm_autoswitch;"*) : ;;
+    *) PROMPT_COMMAND="__jvm_autoswitch${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+esac
 # <<< jvm shell init <<<`
 }
 

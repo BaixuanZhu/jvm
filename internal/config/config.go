@@ -1,10 +1,12 @@
 // Package config 负责加载 jvm 的用户配置 (~/.jvm/config.toml)。
 //
-// 配置项 (首期覆盖):
-//   - mirror: 下载镜像源 (默认清华 TUNA)
-//   - arch:   目标架构 (默认跟随当前二进制: amd64 版 → x64, arm64 版 → aarch64)
+// 配置项:
+//   - mirror:     下载镜像源 (默认清华 TUNA)
+//   - arch:       目标架构 (默认跟随当前二进制: amd64 版 → x64, arm64 版 → aarch64)
+//   - autoswitch: .jvmrc 目录自动切换 (默认开启; cd 进含 .jvmrc 的目录自动
+//     切到该版本, 离开时恢复)
 //
-// 优先级: 环境变量 (JVM_MIRROR / JVM_ARCH) > 配置文件 > 默认值。
+// 优先级: 环境变量 (JVM_MIRROR / JVM_ARCH / JVM_AUTOSWITCH) > 配置文件 > 默认值。
 // 配置文件缺失视为正常 (返回默认值); 解析失败打印警告并回退默认。
 package config
 
@@ -13,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -22,15 +25,25 @@ import (
 
 // Config 是 jvm 的用户配置。
 type Config struct {
-	Mirror string `toml:"mirror"` // 下载镜像源 URL
-	Arch   string `toml:"arch"`   // 目标架构: x64 / aarch64
+	Mirror     string `toml:"mirror"`     // 下载镜像源 URL
+	Arch       string `toml:"arch"`       // 目标架构: x64 / aarch64
+	AutoSwitch bool   `toml:"autoswitch"` // .jvmrc 目录自动切换开关
+}
+
+// fileConfig 是配置文件的解析目标。bool 用指针以区分"未设置" (nil,
+// 保持默认) 与显式 false; mirror/arch 沿用非空判断。
+type fileConfig struct {
+	Mirror     string `toml:"mirror"`
+	Arch       string `toml:"arch"`
+	AutoSwitch *bool  `toml:"autoswitch"`
 }
 
 // Default 返回默认配置。
 func Default() Config {
 	return Config{
-		Mirror: "https://mirrors.tuna.tsinghua.edu.cn/Adoptium",
-		Arch:   defaultArch(),
+		Mirror:     "https://mirrors.tuna.tsinghua.edu.cn/Adoptium",
+		Arch:       defaultArch(),
+		AutoSwitch: true,
 	}
 }
 
@@ -57,7 +70,7 @@ func Load() Config {
 	// 1. 读配置文件 (缺失则跳过, 用默认值)
 	path := configPath()
 	if data, err := os.ReadFile(path); err == nil {
-		var fileCfg Config
+		var fileCfg fileConfig
 		if err := toml.Unmarshal(data, &fileCfg); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  解析 %s 失败, 使用默认配置: %v\n", path, err)
 		} else {
@@ -68,6 +81,9 @@ func Load() Config {
 			if strings.TrimSpace(fileCfg.Arch) != "" {
 				cfg.Arch = fileCfg.Arch
 			}
+			if fileCfg.AutoSwitch != nil {
+				cfg.AutoSwitch = *fileCfg.AutoSwitch
+			}
 		}
 	}
 
@@ -77,6 +93,13 @@ func Load() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("JVM_ARCH")); v != "" {
 		cfg.Arch = v
+	}
+	if v := strings.TrimSpace(os.Getenv("JVM_AUTOSWITCH")); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.AutoSwitch = b
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠️  JVM_AUTOSWITCH=%q 不是布尔值 (1/0/true/false), 已忽略\n", v)
+		}
 	}
 
 	return cfg
