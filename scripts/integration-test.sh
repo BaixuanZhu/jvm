@@ -17,7 +17,8 @@
 set -euo pipefail
 
 ARCH="$(go env GOARCH)"
-JVM="./dist/${ARCH}/jvm.exe"
+# 绝对路径: 后续 use --auto 等用例要 cd 进临时目录再执行, 相对路径会失效 (CI 实测踩过)
+JVM="$(pwd)/dist/${ARCH}/jvm.exe"
 
 if [ ! -f "$JVM" ]; then
     echo "✗ 找不到 $JVM, 请先 make build" >&2
