@@ -432,3 +432,108 @@ func skipSymlinkTest(t *testing.T) bool {
 	os.Remove(link)
 	return false
 }
+
+// === checkUserPathCurrent ===
+
+func TestCheckUserPathCurrent(t *testing.T) {
+	currentLink := filepath.Join(t.TempDir(), "current")
+	bin := filepath.Join(currentLink, "bin")
+	t.Run("包含 current/bin", func(t *testing.T) {
+		c := checkUserPathCurrent(`C:\other;`+bin, currentLink)
+		if !c.ok {
+			t.Errorf("期望通过, detail=%q", c.detail)
+		}
+	})
+	t.Run("大小写不敏感", func(t *testing.T) {
+		upper := strings.ToUpper(bin)
+		c := checkUserPathCurrent(upper, currentLink)
+		if !c.ok {
+			t.Errorf("期望通过 (大小写不敏感), detail=%q", c.detail)
+		}
+	})
+	t.Run("缺失", func(t *testing.T) {
+		c := checkUserPathCurrent(`C:\other`, currentLink)
+		if c.ok {
+			t.Error("期望失败 (未包含 current/bin)")
+		}
+		if c.fix == "" {
+			t.Error("失败时应附修复建议")
+		}
+	})
+}
+
+// === ResidueEntries ===
+
+func TestResidueEntries(t *testing.T) {
+	base := t.TempDir()
+	currentLink := filepath.Join(base, "current")
+
+	// 造三个目录: 两个含 java.exe (残留), 一个不含
+	jdkA := filepath.Join(base, "jdkA")
+	jdkB := filepath.Join(base, "jdkB")
+	plain := filepath.Join(base, "plain")
+	for _, d := range []string{jdkA, jdkB, plain} {
+		os.MkdirAll(d, 0o755)
+	}
+	os.WriteFile(filepath.Join(jdkA, "java.exe"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(jdkB, "java.exe"), []byte("x"), 0o644)
+
+	bin := filepath.Join(currentLink, "bin")
+	regPath := strings.Join([]string{bin, jdkA, plain, jdkB}, ";")
+
+	got := ResidueEntries(regPath, currentLink)
+	want := []string{jdkA, jdkB}
+	if len(got) != len(want) {
+		t.Fatalf("残留数 = %d (%v), want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("残留[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	if r := ResidueEntries("", currentLink); r != nil {
+		t.Errorf("空 PATH 应无残留, got %v", r)
+	}
+	if r := ResidueEntries(bin+";"+plain, currentLink); len(r) != 0 {
+		t.Errorf("只有 current/bin 与普通目录时应无残留, got %v", r)
+	}
+}
+
+// === junctionFixPlan ===
+
+func TestJunctionFixPlan(t *testing.T) {
+	t.Run("链接不存在 → 直接创建", func(t *testing.T) {
+		if got := junctionFixPlan(filepath.Join(t.TempDir(), "nope")); got != junctionCreate {
+			t.Errorf("got %v, want junctionCreate", got)
+		}
+	})
+	t.Run("空普通目录 → 删了重建", func(t *testing.T) {
+		dir := t.TempDir()
+		if got := junctionFixPlan(dir); got != junctionReplace {
+			t.Errorf("got %v, want junctionReplace", got)
+		}
+	})
+	t.Run("非空普通目录 → 跳过", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "userfile.txt"), []byte("data"), 0o644)
+		if got := junctionFixPlan(dir); got != junctionSkip {
+			t.Errorf("got %v, want junctionSkip (不自动删用户数据)", got)
+		}
+	})
+	t.Run("有效 junction → 删了重建", func(t *testing.T) {
+		if runtime.GOOS != "windows" {
+			t.Skip("junction 仅 Windows")
+		}
+		base := t.TempDir()
+		target := filepath.Join(base, "target")
+		os.MkdirAll(target, 0o755)
+		link := filepath.Join(base, "link")
+		if err := junction.Create(link, target); err != nil {
+			t.Fatalf("创建测试 junction: %v", err)
+		}
+		if got := junctionFixPlan(link); got != junctionReplace {
+			t.Errorf("got %v, want junctionReplace", got)
+		}
+	})
+}

@@ -178,6 +178,49 @@ func EnsureCurrentInPath() error {
 	return Persist("PATH", newPath)
 }
 
+// RemoveFromUserPath 从注册表用户 PATH 中移除指定条目 (大小写不敏感、
+// 路径规整后匹配), 供 doctor --fix 清理旧 JDK 残留路径。
+// 没有命中条目时不动注册表。
+func RemoveFromUserPath(entries []string) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	remove := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		remove[strings.ToLower(filepath.Clean(e))] = true
+	}
+	userPath, err := readUserEnv("PATH")
+	if err != nil {
+		return fmt.Errorf("读取用户 PATH 失败: %w", err)
+	}
+	newPath := filterUserPath(userPath, remove)
+	if newPath == userPath {
+		return nil
+	}
+	return Persist("PATH", newPath)
+}
+
+// filterUserPath 从 PATH 串中移除命中的条目, 保留其余条目与顺序。
+// remove 的 key 须为 strings.ToLower(filepath.Clean(条目)) 形式
+// (与 RemoveFromUserPath 构造方式一致)。纯函数, 便于表驱动测试。
+func filterUserPath(userPath string, remove map[string]bool) string {
+	parts := strings.Split(userPath, ";")
+	out := make([]string, 0, len(parts))
+	changed := false
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" && remove[strings.ToLower(filepath.Clean(trimmed))] {
+			changed = true
+			continue
+		}
+		out = append(out, p)
+	}
+	if !changed {
+		return userPath
+	}
+	return strings.Join(out, ";")
+}
+
 // EnsureUserPath 确保 jvm.exe 自身所在目录在用户 PATH 里。
 // 每次启动静默调用: 用 os.Executable() 拿 exe 目录, 若不在用户 PATH
 // 就追加到末尾并持久化。首次运行自动注入, 之后用户移动 exe 也能自适应。

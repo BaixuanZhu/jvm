@@ -9,14 +9,20 @@
 //   - current 的 java: ~/.jvm/current/bin/java.exe 是否存在
 //   - current 的 java 版本: 实跑 java -version 是否成功 (排除损坏二进制)
 //   - 版本目录完整性: ~/.jvm/versions/ 下各目录是否都有 bin/java.exe
+//   - 用户 PATH: 注册表用户 PATH 是否包含 current/bin (保证新终端能找到 java)
 //   - 注册表 PATH 残留: 用户 PATH 里是否有非 current/bin 的旧 JDK 路径
 //
 // 检查函数都接收显式参数 (路径/已读好的环境值), 不直接读全局状态 ——
 // 这样可以用临时目录和注入值做表驱动测试, 不污染真实注册表/profile。
 // Run() 负责从 paths/env/shell 取真实状态再分发给检查函数。
+//
+// doctor --fix 在报告后对失败项执行自动修复 (见 applyFixes): 只修无争议项
+// (目录/JAVA_HOME/junction 重建/profile 注入/PATH 补全/残留清理), 残留清理
+// 前逐条确认; 需重装或动系统 PATH 的项保留建议不动。
 package doctor
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -45,8 +51,9 @@ type profileItem struct {
 	path  string // profile 文件路径
 }
 
-// Run 执行全部检查并打印诊断报告。
-func Run() {
+// Run 执行全部检查并打印诊断报告。fix 为 true 时 (--fix) 对失败项执行自动修复,
+// assumeYes 为 true 时 (-y) 跳过残留清理的逐条确认 (供脚本调用)。
+func Run(fix, assumeYes bool) {
 	fmt.Println("🏥 jvm 环境诊断")
 	fmt.Println(strings.Repeat("─", 40))
 
@@ -70,23 +77,27 @@ func Run() {
 		checkCurrentJava(paths.CurrentLink),
 		checkJavaVersion(javaBin, runJavaVersion),
 		checkVersionsIntegrity(paths.VersionsDir),
+		checkUserPathCurrent(regPath, paths.CurrentLink),
 		checkRegistryPathResidue(regPath, paths.CurrentLink),
 	}
 
-	problems := 0
+	var failed []check
 	for _, c := range checks {
 		printCheck(c)
 		if !c.ok {
-			problems++
+			failed = append(failed, c)
 		}
 	}
 
 	fmt.Println(strings.Repeat("─", 40))
-	switch problems {
-	case 0:
+	switch {
+	case len(failed) == 0:
 		fmt.Println("✅ 所有检查通过, 环境配置正常。")
+	case fix:
+		applyFixes(failed, assumeYes, regPath)
 	default:
-		fmt.Printf("⚠️  发现 %d 个问题 (见上方 ✗ 项的修复建议)。\n", problems)
+		fmt.Printf("⚠️  发现 %d 个问题 (见上方 ✗ 项的修复建议)。\n", len(failed))
+		fmt.Println("运行 jvm doctor --fix 可自动修复部分问题。")
 	}
 }
 
@@ -340,12 +351,31 @@ func checkVersionsIntegrity(versionsDir string) check {
 	return check{ok: true, name: "版本目录完整性", detail: fmt.Sprintf("%d 个版本目录均完整", total)}
 }
 
-// checkRegistryPathResidue 检查注册表持久化的用户 PATH 里是否有非 current/bin 的旧 JDK 路径。
-// 区别于 checkPathConflict (检查进程 PATH 的抢先冲突), 这里检查注册表里的残留:
-// 即曾经手动加过的、未被 jvm 管理的 java.exe 路径, 它们会在新终端里造成版本混乱。
-func checkRegistryPathResidue(regPath, currentLink string) check {
+// checkUserPathCurrent 检查注册表持久化的用户 PATH 是否包含 current/bin。
+// 区别于 checkPathConflict (查当前进程 PATH): 这里保证的是新开终端能找到 java。
+// regPath 是已读好的注册表用户 PATH (由 Run 读取后注入, 便于测试)。
+func checkUserPathCurrent(regPath, currentLink string) check {
+	binPath := filepath.Join(currentLink, "bin")
+	for _, entry := range strings.Split(regPath, string(os.PathListSeparator)) {
+		entry = strings.TrimSpace(entry)
+		if entry != "" && strings.EqualFold(filepath.Clean(entry), filepath.Clean(binPath)) {
+			return check{ok: true, name: "用户 PATH", detail: "current/bin 已在用户 PATH"}
+		}
+	}
+	return check{
+		ok:     false,
+		name:   "用户 PATH",
+		detail: "用户 PATH 未包含 current/bin (新开终端可能找不到 java)",
+		fix:    "jvm doctor --fix 自动补上, 或任意 jvm use 时自动设置",
+	}
+}
+
+// ResidueEntries 返回用户 PATH 里的旧 JDK 残留条目: 含 java.exe 且不是
+// current/bin 的路径。诊断 (checkRegistryPathResidue) 与修复 (applyFixes)
+// 共用, 保证两者看到的是同一批条目。纯函数, 便于表驱动测试。
+func ResidueEntries(regPath, currentLink string) []string {
 	if strings.TrimSpace(regPath) == "" {
-		return check{ok: true, name: "注册表 PATH 残留", detail: "用户 PATH 未持久化, 无残留"}
+		return nil
 	}
 	binPath := filepath.Join(currentLink, "bin")
 	var residue []string
@@ -363,6 +393,17 @@ func checkRegistryPathResidue(regPath, currentLink string) check {
 			residue = append(residue, entry)
 		}
 	}
+	return residue
+}
+
+// checkRegistryPathResidue 检查注册表持久化的用户 PATH 里是否有非 current/bin 的旧 JDK 路径。
+// 区别于 checkPathConflict (检查进程 PATH 的抢先冲突), 这里检查注册表里的残留:
+// 即曾经手动加过的、未被 jvm 管理的 java.exe 路径, 它们会在新终端里造成版本混乱。
+func checkRegistryPathResidue(regPath, currentLink string) check {
+	if strings.TrimSpace(regPath) == "" {
+		return check{ok: true, name: "注册表 PATH 残留", detail: "用户 PATH 未持久化, 无残留"}
+	}
+	residue := ResidueEntries(regPath, currentLink)
 	if len(residue) == 0 {
 		return check{ok: true, name: "注册表 PATH 残留", detail: "用户 PATH 无旧 JDK 残留"}
 	}
@@ -370,6 +411,158 @@ func checkRegistryPathResidue(regPath, currentLink string) check {
 		ok:     false,
 		name:   "注册表 PATH 残留",
 		detail: fmt.Sprintf("PATH 里有旧 JDK: %s", strings.Join(residue, ", ")),
-		fix:    "从用户环境变量 PATH 中移除旧 JDK 路径, 由 jvm use 统一管理",
+		fix:    "从用户环境变量 PATH 中移除旧 JDK 路径, 由 jvm use 统一管理 (doctor --fix 可代删)",
 	}
+}
+
+// applyFixes 对失败的检查项执行自动修复 (--fix)。
+// 只修无争议项: 目录/JAVA_HOME/junction 重建/profile 注入/用户 PATH 补全/残留清理;
+// 残留清理会删用户 PATH 条目, 删除前逐条确认 (assumeYes 跳过);
+// 需要重装或动系统 PATH 的项 (PATH 冲突/版本损坏) 保留建议不自动处理。
+func applyFixes(failed []check, assumeYes bool, regPath string) {
+	fmt.Println("🔧 自动修复:")
+	fixed := 0
+	for _, c := range failed {
+		switch c.name {
+		case "目录结构":
+			if err := paths.EnsureDirs(); err != nil {
+				fmt.Printf("  ✗ 目录结构: %v\n", err)
+				continue
+			}
+			fmt.Println("  ✓ 目录结构: 已创建 ~/.jvm 与 versions 目录")
+			fixed++
+		case "current 链接":
+			switch fixJunction() {
+			case fixDone:
+				fixed++
+			}
+		case "JAVA_HOME":
+			if err := env.Persist("JAVA_HOME", paths.CurrentLink); err != nil {
+				fmt.Printf("  ✗ JAVA_HOME: %v\n", err)
+				continue
+			}
+			fmt.Printf("  ✓ JAVA_HOME: 已指向 %s\n", paths.CurrentLink)
+			fixed++
+		case "shell 集成", "Tab 补全":
+			shell.EnsureIntegration()
+			fmt.Println("  ✓ " + c.name + ": 已补全 profile 注入 (重开终端生效)")
+			fixed++
+		case "用户 PATH":
+			if err := env.EnsureCurrentInPath(); err != nil {
+				fmt.Printf("  ✗ 用户 PATH: %v\n", err)
+				continue
+			}
+			fmt.Println("  ✓ 用户 PATH: 已把 current/bin 加入用户 PATH")
+			fixed++
+		case "注册表 PATH 残留":
+			fixResidue(regPath, assumeYes)
+			fixed++
+		default:
+			// PATH 冲突 / current 的 java / java 版本 / 版本目录完整性: 需手动或重装
+			fmt.Printf("  ⏭️  %s: 不自动修复 (见上方建议)\n", c.name)
+		}
+	}
+	if fixed > 0 {
+		fmt.Println("修复已执行, 重跑 jvm doctor 验证。")
+	}
+}
+
+// fixResidue 清理用户 PATH 里的旧 JDK 残留: 逐条确认 (assumeYes=true 全部直接删),
+// 被拒绝的条目保留。
+func fixResidue(regPath string, assumeYes bool) {
+	residue := ResidueEntries(regPath, paths.CurrentLink)
+	if len(residue) == 0 {
+		return // 环境已变化, 无残留可清
+	}
+	fmt.Println("  以下用户 PATH 条目含 java.exe 且不由 jvm 管理:")
+	var remove []string
+	for _, r := range residue {
+		if assumeYes || confirmYes("    移除 "+r+" ?") {
+			remove = append(remove, r)
+		}
+	}
+	if len(remove) == 0 {
+		fmt.Println("  ⏭️  注册表 PATH 残留: 未选择任何条目, 跳过")
+		return
+	}
+	if err := env.RemoveFromUserPath(remove); err != nil {
+		fmt.Printf("  ✗ 注册表 PATH 残留: %v\n", err)
+		return
+	}
+	fmt.Printf("  ✓ 注册表 PATH 残留: 已移除 %d 条\n", len(remove))
+}
+
+// fixJunction 修复 current 链接: 缺失/悬空/空普通目录时重建到最新已装版本;
+// current 是非空普通目录时跳过 (可能是用户数据, 不自动删)。输出结果行。
+func fixJunction() fixState {
+	switch junctionFixPlan(paths.CurrentLink) {
+	case junctionSkip:
+		fmt.Println("  ⏭️  current 链接: current 是非空普通目录, 需手动确认后删除 (不自动清用户数据)")
+		return fixSkip
+	case junctionReplace:
+		if err := junction.Remove(paths.CurrentLink); err != nil {
+			fmt.Printf("  ✗ current 链接: 移除旧链接失败: %v\n", err)
+			return fixFail
+		}
+	}
+	names, _ := junction.ListLocal()
+	if len(names) == 0 {
+		fmt.Println("  ⏭️  current 链接: 没有已安装版本可指向, 先 jvm install <版本号>")
+		return fixFail
+	}
+	target := filepath.Join(paths.VersionsDir, names[0]) // ListLocal 降序, 首个即最新
+	if err := junction.Create(paths.CurrentLink, target); err != nil {
+		fmt.Printf("  ✗ current 链接: 重建失败: %v\n", err)
+		return fixFail
+	}
+	fmt.Printf("  ✓ current 链接: 已重建 → %s\n", names[0])
+	return fixDone
+}
+
+// fixState 是修复动作的执行状态。
+type fixState int
+
+const (
+	fixDone fixState = iota // 修复成功
+	fixFail                 // 修复失败
+	fixSkip                 // 该项跳过自动修复
+)
+
+// junctionFixAction 是 current 链接问题的修复方式。
+type junctionFixAction int
+
+const (
+	junctionCreate  junctionFixAction = iota // 链接不存在, 直接创建
+	junctionReplace                          // 悬空链接/空普通目录, 删旧再建
+	junctionSkip                             // 非空普通目录, 不自动处理
+)
+
+// junctionFixPlan 判断 current 链接问题的修复方式 (不做实际动作, 便于表测)。
+func junctionFixPlan(link string) junctionFixAction {
+	if _, err := os.Lstat(link); err != nil {
+		return junctionCreate
+	}
+	if _, err := os.Readlink(link); err != nil {
+		// 普通目录 (Readlink 失败): 空目录可删了重建, 非空不自动处理
+		if dirIsEmpty(link) {
+			return junctionReplace
+		}
+		return junctionSkip
+	}
+	return junctionReplace // 链接 (含悬空): 删了重建
+}
+
+// dirIsEmpty 判断目录是否为空 (不存在视为空)。
+func dirIsEmpty(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return err != nil || len(entries) == 0
+}
+
+// confirmYes 在终端问一个 y/N 问题, 回答 y/yes 返回 true。
+func confirmYes(prompt string) bool {
+	fmt.Printf("%s [y/N] ", prompt)
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes"
 }

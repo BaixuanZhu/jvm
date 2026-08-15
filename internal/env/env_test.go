@@ -1,6 +1,7 @@
 package env
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,5 +57,39 @@ func TestSplitPathEntriesRoundTrip(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("拆分后未找到 current/bin, entries=%v", entries)
+	}
+}
+
+// TestFilterUserPath 覆盖 RemoveFromUserPath 的纯逻辑部分:
+// 命中条目被移除 (大小写不敏感、Clean 后匹配), 其余条目与顺序保留, 无命中原样返回。
+func TestFilterUserPath(t *testing.T) {
+	remove := func(entries ...string) map[string]bool {
+		m := make(map[string]bool, len(entries))
+		for _, e := range entries {
+			m[strings.ToLower(filepath.Clean(e))] = true
+		}
+		return m
+	}
+	tests := []struct {
+		name   string
+		in     string
+		remove map[string]bool
+		want   string
+	}{
+		{"移除中间条目", `C:\a;C:\jdk17\bin;C:\b`, remove(`C:\jdk17\bin`), `C:\a;C:\b`},
+		{"大小写不敏感", `C:\a;C:\JDK17\BIN;C:\b`, remove(`c:\jdk17\bin`), `C:\a;C:\b`},
+		{"斜杠形式等价", `C:\a;C:/jdk17/bin;C:\b`, remove(`C:\jdk17\bin`), `C:\a;C:\b`},
+		{"移除多个", `C:\j1;C:\j2;C:\j3`, remove(`C:\j1`, `C:\j3`), `C:\j2`},
+		{"无命中原样返回", `C:\a;C:\b`, remove(`C:\zz`), `C:\a;C:\b`},
+		{"移除后为空", `C:\jdk17\bin`, remove(`C:\jdk17\bin`), ``},
+		{"命中但带空格", `C:\a; C:\jdk17\bin ;C:\b`, remove(`C:\jdk17\bin`), `C:\a;C:\b`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterUserPath(tt.in, tt.remove)
+			if got != tt.want {
+				t.Errorf("filterUserPath(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }
