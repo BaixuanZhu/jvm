@@ -93,6 +93,8 @@ func main() {
 		cmd.Uninstall(args)
 	case "current":
 		cmd.Current()
+	case "exec":
+		cmd.Exec(args)
 	case "doctor":
 		doctor.Run()
 	case "init":
@@ -137,6 +139,7 @@ func usage() {
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
   uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)
   current                  显示当前正在使用的版本
+  exec <版本> -- <命令>    用指定版本执行命令, 不动全局 (例如: jvm exec 17 -- mvn test)
   doctor                   诊断环境配置 (目录/junction/PATH/JAVA_HOME/shell 集成)
   init <shell>             打印/安装 shell 集成脚本 (通常自动完成, 无需手动)
   completion <shell>       打印/安装 shell Tab 补全脚本 (通常自动完成, 无需手动)

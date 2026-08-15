@@ -83,8 +83,8 @@ type fakeProvider struct {
 	name string
 }
 
-func (f fakeProvider) Name() string          { return f.name }
-func (fakeProvider) DisplayName() string     { return "Fake" }
+func (f fakeProvider) Name() string      { return f.name }
+func (fakeProvider) DisplayName() string { return "Fake" }
 func (fakeProvider) Available() ([]app.Release, error) {
 	// 多个大版本 → 触发 availableTable/Groups 的多 goroutine 并发
 	return []app.Release{{Major: 17, LTS: true}, {Major: 21, LTS: true}, {Major: 25, LTS: false}}, nil
