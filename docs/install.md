@@ -56,7 +56,7 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -O
 
 ```powershell
 jvm version
-jvm doctor   # 9 项环境诊断，全部 ✓ 即就绪
+jvm doctor   # 10 项环境诊断，全部 ✓ 即就绪
 ```
 
 ## 卸载

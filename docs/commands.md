@@ -17,7 +17,29 @@ jvm use corretto@21         # 切换到 corretto 21
 jvm uninstall 21            # 卸载（默认需确认，加 -y 跳过）
 ```
 
-## 查询
+## 项目版本固定（.jvmrc）
+
+在项目根目录放一个 `.jvmrc`（内容一行版本号，如 `21` 或 `corretto@21`），团队成员无需各自记版本号：
+
+```powershell
+jvm pin 21                  # 把版本号写入当前目录 .jvmrc
+jvm pin corretto@21
+jvm use                     # 无参数：从当前目录逐级向上找 .jvmrc 并切换
+```
+
+配合 shell 集成 v2，cd 进含 `.jvmrc` 的目录会**自动切换**，cd 出去恢复原版本（详见[配置与原理]({{ '/docs/config/' | relative_url }})）。不支持自动切换的场景（如 CMD）用无参数 `jvm use` 即可。
+
+## 一次性执行（不动全局）
+
+```powershell
+jvm exec 17 -- mvn test         # 用 JDK 17 跑测试，不影响全局 current 版本
+jvm exec corretto@21 -- java -version
+jvm exec -- mvn test            # 无版本号：读 .jvmrc，再退到当前版本
+```
+
+只解析本地已装版本（未装会提示 `jvm install`）；`java`/`javac` 优先在该版本 bin 内解析；mvn / gradlew 等批处理自动经 `cmd.exe` 分发；子进程退出码原样传播（`$LASTEXITCODE` / `$?` 可用）。
+
+## 查询与诊断
 
 ```powershell
 jvm list                    # 已安装版本（→ 标记当前）
@@ -26,7 +48,9 @@ jvm available corretto      # 查看 corretto 可安装版本
 jvm available -a            # 列出每个大版本的全部子版本
 jvm available --major 21    # 只看 JDK 21 的全部子版本
 jvm current                 # 当前版本（会实际执行 java -version）
-jvm doctor                  # 诊断环境配置（9 项检查，附修复建议）
+jvm outdated                # 检查已装版本 patch 更新，提示升级命令
+jvm doctor                  # 诊断环境配置（10 项检查，附修复建议）
+jvm doctor --fix            # 自动修复失败项（残留清理逐条确认，-y 跳过）
 ```
 
 ## Shell 集成

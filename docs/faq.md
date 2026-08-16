@@ -14,7 +14,7 @@ CMD **不支持** shell 自动集成（doskey 体验差）。jvm 本身在 CMD �
 ## `jvm use` 后 java 没变？
 
 1. 确认你重开过至少一次终端（让 PATH 和 shell 集成生效）
-2. 跑 `jvm doctor` 做 9 项诊断，按修复建议处理
+2. 跑 `jvm doctor` 做 10 项诊断，或直接 `jvm doctor --fix` 自动修复
 3. 确认使用的是 PowerShell 或 bash（CMD 见上一条）
 
 ## 国内下载慢 / 失败？
@@ -25,7 +25,11 @@ CMD **不支持** shell 自动集成（doskey 体验差）。jvm 本身在 CMD �
 
 ## 和 nvm-windows / jabba 有什么区别？
 
-定位类似，jvm 的差异点：多发行版支持（`distro@` 语法）、当前终端即时生效、免管理员、国内镜像加速、`jvm doctor` 环境诊断、Tab 智能补全。
+定位类似，jvm 的差异点：多发行版支持（`distro@` 语法）、当前终端即时生效、免管理员、国内镜像加速、项目级 `.jvmrc` 固定与自动切换、`jvm exec` 不动全局的一次性执行、`jvm outdated` 升级检查、`jvm doctor` 环境诊断与一键修复、Tab 智能补全。
+
+## 不想让 cd 自动切版本，怎么关？
+
+`~/.jvm/config.toml` 里写 `autoswitch = false`，或临时 `$env:JVM_AUTOSWITCH = "0"`。关掉后 `.jvmrc` 仍可用无参数 `jvm use` 显式读取。
 
 ## 会污染系统环境吗？
 

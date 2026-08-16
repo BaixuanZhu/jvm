@@ -112,17 +112,22 @@
         ["dim", "正在解析 temurin@21 ..."],
         ["dim", "下载 OpenJDK 21.0.12+8  [████████████] 100%"],
         ["o",   "✓ SHA256 校验通过"],
-        ["o",   "✓ 安装完成：temurin@21.0.12+8"]
+        ["o",   "✓ 安装完成：temurin-21.0.12+8"]
       ]},
       { type: "cmd", text: "jvm use 21" },
       { type: "out", lines: [
-        ["o",   "✓ 已切换到 temurin@21.0.12+8"],
+        ["o",   "✓ 已切换到 temurin-21.0.12+8"],
         ["dim", "当前终端同步生效，无需重开"]
+      ]},
+      { type: "cmd", text: "cd my-app" },
+      { type: "out", lines: [
+        ["dim", "发现 .jvmrc: corretto@17"],
+        ["o",   "✓ 自动切换到 corretto-17.0.16.8.1"]
       ]},
       { type: "cmd", text: "java -version" },
       { type: "out", lines: [
-        ["o",   'openjdk version "21.0.12" 2026-07-21 LTS'],
-        ["dim", "OpenJDK Runtime Environment Temurin-21.0.12+8"]
+        ["o",   'openjdk version "17.0.16" 2026-07-15 LTS'],
+        ["dim", "OpenJDK Runtime Environment Corretto-17.0.16.8.1"]
       ]}
     ];
 

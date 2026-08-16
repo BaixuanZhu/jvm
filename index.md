@@ -36,7 +36,9 @@ title: 首页
 
 <span class="p">jvm use 21</span>
 
-<span class="o">java -version</span>  <span class="c"># 现在就是新版本</span></pre>
+<span class="p">cd my-app</span>  <span class="c"># 项目里有 .jvmrc: corretto@17</span>
+
+<span class="o">java -version</span>  <span class="c"># 自动切到 17, 现在就是它</span></pre>
     </div>
   </div>
 </section>
@@ -67,6 +69,16 @@ title: 首页
         <div class="icon">🌐</div>
         <h3>多发行版</h3>
         <p>Temurin / Corretto / Microsoft / Zulu / Liberica，<code>distro@version</code> 语法随心选。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="icon">📄</div>
+        <h3>项目级 .jvmrc</h3>
+        <p><code>jvm pin</code> 把版本固定在项目里，cd 进目录自动切换、cd 出去自动恢复，团队统一 JDK。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="icon">🧪</div>
+        <h3>多版本并行</h3>
+        <p><code>jvm exec 17 -- mvn test</code> 用指定版本一次性执行，不动全局，多版本对比测试神器。</p>
       </div>
       <div class="feature-card fade-in">
         <div class="icon">🚫</div>

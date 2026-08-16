@@ -4,6 +4,20 @@ description: jvm 各版本变更记录。
 layout: docs
 ---
 
+## [0.11.0] - 2026-08-16
+
+### 新增
+- **`jvm exec <[distro@]版本> -- <命令>`**：用指定版本在子进程环境里执行命令，不动全局 current junction（如 `jvm exec 17 -- mvn test`）。无版本号时读 `.jvmrc` 再退到当前版本；批处理（mvn / gradlew 等 `.cmd`/`.bat`）自动经 `cmd.exe` 分发，子进程退出码原样传播。
+- **`jvm outdated`**：检查已装版本 patch 更新，按（发行版, 大版本）分组并发查询，列出可升级行与升级命令。
+- **`jvm doctor --fix`**：诊断报告后自动修复失败项——目录 / current 链接重建 / JAVA_HOME / shell 集成 / 用户 PATH 补全；注册表 PATH 里的旧 JDK 残留逐条确认后移除（`-y` 跳过）。新增第 10 项检查「用户 PATH」。
+- **`.jvmrc` 目录自动切换**：shell 集成 v2 在 `.jvmrc` 变化时自动执行 `jvm use --auto`——cd 进含 `.jvmrc` 的目录自动切到该版本，cd 出去恢复切换前的手动版本。默认开启，`autoswitch = false`（或 `JVM_AUTOSWITCH=0`）关闭；老用户升级 jvm 后自动获得新钩子。
+
+## [0.10.0] - 2026-08-13
+
+### 新增
+- **项目级版本固定 `.jvmrc`**：`jvm pin [版本]` 写入当前目录的 `.jvmrc`，`jvm use` 无参数时从当前目录逐级向上查找并读取（与 .nvmrc / .ruby-version 一致，支持 monorepo 子目录），团队成员无需各自记版本号。
+- 新增 `make test-race` 竞态检测，CI 每次 push / PR 额外跑 `go test -race`。
+
 ## [0.9.0] - 2026-08-11
 
 ### 新增
