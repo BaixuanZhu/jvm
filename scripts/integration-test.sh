@@ -6,8 +6,9 @@
 #   JVM_HOME=<临时目录>  把 ~/.jvm 重定向到临时目录, install 的 versions/current 全部隔离
 #
 # ⚠️ 注意: `jvm use` 仍会写 HKCU\Environment 注册表 (JAVA_HOME + 用户 PATH), 这与
-#   paths.Root 无关、无法靠 JVM_HOME 重定向。CI runner 一次性, 污染可接受; 本地手动跑
-#   本脚本前请知悉 (会改本机注册表 JAVA_HOME / 用户 PATH)。
+#   paths.Root 无关、无法靠 JVM_HOME 重定向。doctor --fix 残留清理用例也会临时向
+#   用户 PATH 追加一条假旧 JDK 再由 --fix 删除 (净效果为零)。CI runner 一次性,
+#   污染可接受; 本地手动跑本脚本前请知悉 (会改本机注册表 JAVA_HOME / 用户 PATH)。
 #
 # 用法:
 #   export JVM_HOME="$(mktemp -d)"   # 强烈建议, 隔离 install 副作用
@@ -48,6 +49,19 @@ run() {
     exit 1
 }
 
+# run_in <目录> <描述> <jvm args...>: run 的 cd 版 —— .jvmrc 相关用例须在特定目录执行。
+run_in() {
+    local dir="$1" desc="$2"; shift 2
+    echo "### $desc ###"
+    local rc=0
+    LAST_OUT="$(cd "$dir" && "$JVM" "$@" 2>&1)" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "  ✗ 命令退出 $rc" >&2
+        printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+        exit 1
+    fi
+}
+
 # expect <描述> <期望子串>: 断言 LAST_OUT 含期望子串。
 expect() {
 	local desc="$1" needle="$2"
@@ -61,19 +75,32 @@ expect() {
 	fi
 }
 
+# expect_silent <描述>: 断言 LAST_OUT 为空 (use --auto 的 no-op 路径必须零输出,
+# 否则每次开终端 prompt 前都会出现垃圾行)。
+expect_silent() {
+    local desc="$1"
+    if [ -z "$LAST_OUT" ]; then
+        echo "  ✓ $desc"
+    else
+        echo "  ✗ $desc (期望无输出)" >&2
+        printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+        exit 1
+    fi
+}
+
 # run_fail <描述> <jvm args...>: 跑 jvm 命令, 期望它失败 (退出非 0); 成功则测试失败。
 # 失败输出仍存 LAST_OUT, 可用 expect 断言错误消息内容。供负向用例 (未知 distro 等)。
 run_fail() {
-	local desc="$1"; shift
-	echo "### $desc ###"
-	local rc=0
-	LAST_OUT="$("$JVM" "$@" 2>&1)" || rc=$?
-	if [ "$rc" -eq 0 ]; then
-		echo "  ✗ 命令预期失败但成功了 (退出 0)" >&2
-		printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
-		exit 1
-	fi
-	echo "  ✓ 如期失败 (退出 $rc)"
+    local desc="$1"; shift
+    echo "### $desc ###"
+    local rc=0
+    LAST_OUT="$("$JVM" "$@" 2>&1)" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "  ✗ 命令预期失败但成功了 (退出 0)" >&2
+        printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+        exit 1
+    fi
+    echo "  ✓ 如期失败 (退出 $rc)"
 }
 
 run "1. version" version
@@ -132,10 +159,28 @@ run "10. exec: 批处理分发 (.cmd 经 cmd.exe /c)" exec temurin@21 -- "$JVM_H
 expect "批处理输出 BATCH-OK" "BATCH-OK"
 rm -f "$JVM_HOME/test-dispatch.cmd"
 
-# --- jvm outdated: patch 升级检查 ---
+# pin + exec 无版本参数: .jvmrc 写入与 "读 .jvmrc → 兜底 current" 的解析链路
+# (execSpecFromContext 真实 pinrc.FindUp + ResolveVersion, 单测覆盖不到的编排)。
+# 用 pin 建 rc; 当前 current 是 temurin (步骤 4), 若 exec 误用了 current 而非 rc,
+# 输出会含 temurin 而非 corretto —— 用 %JAVA_HOME% 回显甄别 (env 只注入给子进程)。
+PROJ_EXEC="$(mktemp -d)"
+run_in "$PROJ_EXEC" "11. pin: 写入 .jvmrc" pin corretto@21
+expect "pin 已写入" "已写入"
+run_in "$PROJ_EXEC" "12. exec: 无版本参数读 .jvmrc" exec -- cmd //c echo %JAVA_HOME%
+expect "exec 解析到 .jvmrc 的 corretto 版本" "corretto"
+
+run_fail "13. exec: 未安装版本 fail-fast" exec zulu@99 -- java -version
+expect "提示先安装" "先安装"
+
+# --- available / outdated: 真实 API 查询 ---
+# available 打各 provider 的 Available 端点 (install 只覆盖 Resolve, outdated 只覆盖
+# LatestPatch, 这个端点各发行版独立), 与 outdated 一样只断言稳定表头防上游抖动。
+run "14. available: 查询可安装大版本 (真实 API)" available
+expect "available 打印大版本表" "可安装的大版本"
+
 # CI 刚装的版本可能就是最新 patch, "可升级/均为最新"两种输出都合法, 只断言必然
 # 出现的表头与退出 0, 不断言具体分支 (防上游发新版导致用例抖动)。
-run "11. outdated: patch 升级检查" outdated
+run "15. outdated: patch 升级检查" outdated
 expect "outdated 打印查询表头" "最新 patch"
 
 # --- jvm use --auto: .jvmrc 自动切换状态机 ---
@@ -143,76 +188,101 @@ expect "outdated 打印查询表头" "最新 patch"
 # 注意 NO_RC 须选一条向上都无 .jvmrc 的链 (runner 的 mktemp 目录满足)。
 PROJ_RC="$(mktemp -d)"
 NO_RC="$(mktemp -d)"
-echo "corretto@21" > "$PROJ_RC/.jvmrc"
+run_in "$PROJ_RC" "16. pin: 写入 .jvmrc" pin corretto@21
+expect "pin 已写入" "已写入"
 
-echo "### 12. use --auto: cd 进 .jvmrc 目录自动切换 ###"
-rc=0
-LAST_OUT="$(cd "$PROJ_RC" && "$JVM" use --auto 2>&1)" || rc=$?
-if [ "$rc" -ne 0 ]; then
-    echo "  ✗ use --auto 退出 $rc" >&2
-    printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
-    exit 1
-fi
-printf '%s\n' "$LAST_OUT" | grep -q "切换到 corretto" \
-    && echo "  ✓ 自动切到 corretto" \
-    || { echo "  ✗ 期望输出含\"切换到 corretto\":" >&2; printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2; exit 1; }
+run_in "$PROJ_RC" "17. use --auto: cd 进 .jvmrc 目录自动切换" use --auto
+expect "自动切到 corretto" "切换到 corretto"
 
-run "13. current 验证自动切换结果" current
+run "18. current 验证自动切换结果" current
 expect "current 为 corretto" "corretto"
 
-echo "### 14. use --auto: 离开 .jvmrc 目录恢复手动基线 ###"
-rc=0
-LAST_OUT="$(cd "$NO_RC" && "$JVM" use --auto 2>&1)" || rc=$?
-if [ "$rc" -ne 0 ]; then
-    echo "  ✗ use --auto 退出 $rc" >&2
-    printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
-    exit 1
-fi
-printf '%s\n' "$LAST_OUT" | grep -q "恢复 temurin" \
-    && echo "  ✓ 恢复到 temurin" \
-    || { echo "  ✗ 期望输出含\"恢复 temurin\":" >&2; printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2; exit 1; }
+run_in "$NO_RC" "19. use --auto: 离开 .jvmrc 目录恢复手动基线" use --auto
+expect "恢复到 temurin" "恢复 temurin"
 
-run "15. current 验证恢复" current
+run "20. current 验证恢复" current
 expect "current 回到 temurin" "temurin"
 
 # 未安装版本: 一行警告但不失败 (exit 0), 不刷屏语义由调用方保证
 PROJ_BAD="$(mktemp -d)"
 echo "zulu@99" > "$PROJ_BAD/.jvmrc"
-echo "### 16. use --auto: .jvmrc 指向未装版本 (警告不失败) ###"
+run_in "$PROJ_BAD" "21. use --auto: .jvmrc 指向未装版本 (警告不失败)" use --auto
+expect "如期提示未安装" "未安装"
+
+# 禁用开关端到端: JVM_AUTOSWITCH=0 → config → use --auto 静默不切。
+# 此刻 current=temurin 且无待恢复状态, 禁用路径若有任何输出/切换都会被下面两条抓到。
+echo "### 22. use --auto: JVM_AUTOSWITCH=0 禁用 (静默不切换) ###"
 rc=0
-LAST_OUT="$(cd "$PROJ_BAD" && "$JVM" use --auto 2>&1)" || rc=$?
+LAST_OUT="$(cd "$PROJ_RC" && JVM_AUTOSWITCH=0 "$JVM" use --auto 2>&1)" || rc=$?
 if [ "$rc" -ne 0 ]; then
-    echo "  ✗ 警告路径不应失败 (退出 $rc)" >&2
+    echo "  ✗ 禁用路径不应失败 (退出 $rc)" >&2
     printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
     exit 1
 fi
-printf '%s\n' "$LAST_OUT" | grep -q "未安装" \
-    && echo "  ✓ 如期提示未安装" \
-    || { echo "  ✗ 期望输出含\"未安装\":" >&2; printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2; exit 1; }
+expect_silent "禁用时零输出"
+
+run "23. current 验证未被切换" current
+expect "current 仍为 temurin" "temurin"
+
+# 显式 use = 新手动基线: 先重新进入 rc 目录产生待恢复状态, 再显式裸 use (读 .jvmrc,
+# 覆盖无参 use 的 pinrc 链路) —— 成功后必须清掉 auto-state, 之后离开 rc 目录应静默。
+run_in "$PROJ_RC" "24. use --auto: 重新进入重建待恢复状态" use --auto
+expect "自动切到 corretto" "切换到 corretto"
+
+run_in "$PROJ_RC" "25. use 无参: 读 .jvmrc 切换 (显式 = 新手动基线)" use
+expect "读取 .jvmrc" "读取"
+expect "已切换到 corretto" "已切换"
+
+run_in "$NO_RC" "26. use --auto: 显式切换后离开, 无基线可恢复 (静默)" use --auto
+expect_silent "无输出 (state 已被显式 use 清掉)"
+
+run "27. current 验证未被误恢复" current
+expect "current 仍为 corretto" "corretto"
 
 # --- doctor --fix: junction 重建闭环 ---
 # 用 cmd /c rmdir 删 junction (只删链接本身); 不能用 rm —— MSYS rm 会穿透
 # junction 递归删除目标内容, 那是真实 JDK 目录。cygpath 归一成纯反斜杠路径,
 # 避免 runner.temp 混合斜杠被 cmd 误解析。
-echo "### 17. 删除 current junction, doctor 应报 ✗ ###"
+echo "### 28. 删除 current junction, doctor 应报 ✗ ###"
 cmd //c rmdir "$(cygpath -w "$JVM_HOME")\\current"
 run "doctor 报告 current 链接异常" doctor
 expect "current 链接 ✗" "尚未选定"
 
 # --fix -y 会顺带补写 runner 的 shell profile (集成项原本关自举不写, 这里是有意
 # 验证修复动作) 与注册表 JAVA_HOME/用户 PATH —— runner 一次性, 可接受。
-run "18. doctor --fix -y 自动重建 junction" doctor --fix -y
+run "29. doctor --fix -y 自动重建 junction" doctor --fix -y
 expect "junction 已重建" "已重建"
 
-run "19. current 重建后可用" current
+run "30. current 重建后可用" current
 expect "current 显示当前版本" "当前版本"
 
-run "20. uninstall temurin@21 -y" uninstall temurin@21 -y
+# --- doctor --fix: 注册表 PATH 残留清理 ---
+# 造一个含 java.exe 的假旧 JDK 目录, 追加进用户 PATH (HKCU), 验证三件事:
+#   1) doctor 检出残留;  2) --fix -y 删除;  3) 其余条目 (current/bin) 不被误删。
+# 写注册表用 PowerShell (Get/Set 'User' 目标); 注意 .NET 会把 REG_EXPAND_SZ 展开
+# 后以 REG_SZ 写回 —— runner 一次性环境可接受。假目录放 JVM_HOME 下随临时目录清理。
+FAKE_JDK="$JVM_HOME/fake-old-jdk"
+mkdir -p "$FAKE_JDK/bin"
+touch "$FAKE_JDK/bin/java.exe"
+FAKE_WIN="$(cygpath -w "$FAKE_JDK")"
+echo "### 31. 向用户 PATH 注入假旧 JDK, doctor 应报残留 ###"
+powershell -NoProfile -Command "\$old=[Environment]::GetEnvironmentVariable('PATH','User'); [Environment]::SetEnvironmentVariable('PATH', \$old + ';' + '$FAKE_WIN', 'User')"
+run "doctor 报告注册表 PATH 残留" doctor
+expect "检出旧 JDK 残留" "旧 JDK"
+
+run "32. doctor --fix -y 清理残留条目" doctor --fix -y
+expect "残留已移除" "已移除"
+
+run "33. doctor: 残留清理后复查" doctor
+expect "无旧 JDK 残留" "无旧 JDK 残留"
+expect "current/bin 未被误删" "current/bin 已在用户 PATH"
+
+run "34. uninstall temurin@21 -y" uninstall temurin@21 -y
 expect "uninstall 成功" "已卸载"
 
 # ARM64 下载链路: amd64 runner 只验证到 install/校验/解压, 不跑 java -version
 # (aarch64 二进制在 amd64 跑不了)。用 microsoft@17 避开上面 x64 已装的版本撞名。
-echo "### 21. ARM64 install microsoft@17 (仅下载+校验+解压) ###"
+echo "### 35. ARM64 install microsoft@17 (仅下载+校验+解压) ###"
 if LAST_OUT="$(JVM_ARCH=aarch64 "$JVM" install microsoft@17 2>&1)"; then
     expect "ARM64 microsoft@17 安装完成" "安装完成"
 else
@@ -225,13 +295,13 @@ fi
 echo ""
 echo "--- 负向用例 (命令应拒绝并退出非 0) ---"
 
-run_fail "22. install 未知发行版" install nosuchdistro@21
+run_fail "36. install 未知发行版" install nosuchdistro@21
 expect "提示未知发行版" "未知"
 
-run_fail "23. use 未安装的大版本" use temurin@99
+run_fail "37. use 未安装的大版本" use temurin@99
 expect "提示未安装" "没有安装"
 
-run_fail "24. uninstall 不存在的版本" uninstall temurin@99 -y
+run_fail "38. uninstall 不存在的版本" uninstall temurin@99 -y
 expect "提示未找到" "没有"
 
 echo ""
@@ -239,7 +309,7 @@ echo "--- 自更新 (jvm upgrade: 检查 GitHub Release) ---"
 # 放最后: upgrade 在 dev build 版本号与 release 不同时会下载并替换 dist 下的 jvm.exe
 # (replaceSelf 走 .bak 重命名, 处理运行中 exe)。runner 一次性, 替换不影响后续
 # (本步骤已是最后一项)。本地单测难以覆盖 (需真实 Release + 替换二进制), 故放集成测试。
-run "25. upgrade 检查最新版" upgrade
+run "39. upgrade 检查最新版" upgrade
 expect "upgrade 打印最新版本" "最新版本"
 
 echo ""
