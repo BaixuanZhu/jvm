@@ -257,18 +257,21 @@ run "30. current 重建后可用" current
 expect "current 显示当前版本" "当前版本"
 
 # --- doctor --fix: 注册表 PATH 残留清理 ---
-# 造一个含 java.exe 的假旧 JDK 目录, 追加进用户 PATH (HKCU), 验证三件事:
+# 造一个含 java.exe 的假旧 JDK, 把它的 bin 目录追加进用户 PATH (HKCU), 验证三件事:
 #   1) doctor 检出残留;  2) --fix -y 删除;  3) 其余条目 (current/bin) 不被误删。
+# 注意注入的必须是 bin 目录 —— ResidueEntries 判定残留的标准是 "PATH 条目内直接
+# 存在 java.exe" (PATH 条目本就是 bin 目录), 注入 JDK 根目录会 stat 不到而不算残留
+# (本地实测踩过)。
 # 写注册表用 PowerShell (Get/Set 'User' 目标); 注意 .NET 会把 REG_EXPAND_SZ 展开
 # 后以 REG_SZ 写回 —— runner 一次性环境可接受。假目录放 JVM_HOME 下随临时目录清理。
 FAKE_JDK="$JVM_HOME/fake-old-jdk"
 mkdir -p "$FAKE_JDK/bin"
 touch "$FAKE_JDK/bin/java.exe"
-FAKE_WIN="$(cygpath -w "$FAKE_JDK")"
+FAKE_WIN="$(cygpath -w "$FAKE_JDK/bin")"
 echo "### 31. 向用户 PATH 注入假旧 JDK, doctor 应报残留 ###"
 powershell -NoProfile -Command "\$old=[Environment]::GetEnvironmentVariable('PATH','User'); [Environment]::SetEnvironmentVariable('PATH', \$old + ';' + '$FAKE_WIN', 'User')"
 run "doctor 报告注册表 PATH 残留" doctor
-expect "检出旧 JDK 残留" "旧 JDK"
+expect "检出旧 JDK 残留" "里有旧 JDK"
 
 run "32. doctor --fix -y 清理残留条目" doctor --fix -y
 expect "残留已移除" "已移除"
