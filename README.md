@@ -64,8 +64,6 @@ iwr -useb "https://raw.githubusercontent.com/BaixuanZhu/jvm/main/install.ps1" -O
 
 > 自动集成是幂等的，重复运行不会堆积；如果你不想用自动集成，可手动删除 profile 里的 `jvm shell init` 标记块。
 
-> 也可通过 winget 安装：等 `BaixuanZhu.jvm` 的 manifest 合并到 [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) 后，运行 `winget install BaixuanZhu.jvm`。
-
 ## 快速开始
 
 ```powershell

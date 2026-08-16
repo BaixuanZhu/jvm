@@ -7,7 +7,10 @@
 
 ## [Unreleased]
 
-### 新增
+### 移除
+
+- 移除发版后自动向 `microsoft/winget-pkgs` 提交 manifest 更新 PR 的 CI job（0.10.0
+  引入，因暂不发布 winget 而移除；将来要上 winget 可从 git 历史找回 workflow 配置）。
 
 ## [0.11.0] - 2026-08-16
 
