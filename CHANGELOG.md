@@ -9,6 +9,10 @@
 
 ### 新增
 
+## [0.11.0] - 2026-08-16
+
+### 新增
+
 - `jvm exec <[distro@]版本> -- <命令>`：用指定版本在子进程环境里执行命令，不动全局
   current junction（一次性多版本测试与 CI 脚本场景，如 `jvm exec 17 -- mvn test`）。
   无版本号时读 `.jvmrc` 再退到当前版本；只解析本地已装版本，不自动下载；
@@ -250,7 +254,8 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/BaixuanZhu/jvm/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/BaixuanZhu/jvm/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/BaixuanZhu/jvm/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/BaixuanZhu/jvm/compare/v0.7.0...v0.8.0
