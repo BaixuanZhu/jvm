@@ -200,8 +200,9 @@ expect "旧 patch 安装完成" "安装完成"
 run "15b. use 切到旧 patch" use temurin@21.0.2+13
 expect "已切到旧 patch" "已切换"
 
-run "15c. update 21 -y: 升级回最新 (当前正用旧版, 应自动切换)" update 21 -y
-expect "update 升级完成" "已升级"
+run "15c. update 21 -y: 最新版已装 → 跳过下载, 切换并清理旧版" update 21 -y
+expect "update 跳过下载" "跳过下载"
+expect "update 清理旧版本" "清理了"
 
 run "15d. current 验证已切到新版" current
 expect "current 为 temurin" "temurin"

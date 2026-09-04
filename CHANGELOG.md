@@ -9,11 +9,11 @@
 
 ### 新增
 
-- `jvm update <[distro@]大版本> [-y]`：patch 升级一步到位——安装该大版本最新 patch、
-  （当前正在使用该组版本时）自动切换 current、清理组内全部旧 patch 目录（被进程
-  占用删不掉的跳过并提示稍后手动 `uninstall`）。仅接受大版本号；`jvm upgrade`
-  仍只负责 jvm 自身更新，两者语义分离。`jvm outdated` 的升级提示同步改为引导
-  `jvm update`。
+- `jvm update <[distro@]大版本> [-y]`：patch 升级一步到位——安装该大版本最新 patch
+  （组内已有最新版则跳过下载直接进入清理）、（当前正在使用该组版本时）自动切换
+  current、清理组内全部旧 patch 目录（被进程占用删不掉的跳过并提示稍后手动
+  `uninstall`）。仅接受大版本号；`jvm upgrade` 仍只负责 jvm 自身更新，两者语义
+  分离。`jvm outdated` 的升级提示同步改为引导 `jvm update`。
 
 - `jvm home`：打印当前 JAVA_HOME 路径（`~/.jvm/current`，单行无装饰），与注册表
   持久化的值一致且切换版本后不变，供 CI 脚本 / IDE 配置直接引用。
