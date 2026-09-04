@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-04
+
 ### 修复
 
 - 修复 Temurin 2026-07 CPU 起四段式版本号（如 `25.0.4.1+1`）下 `jvm available`
@@ -267,7 +269,8 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/BaixuanZhu/jvm/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/BaixuanZhu/jvm/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/BaixuanZhu/jvm/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/BaixuanZhu/jvm/compare/v0.8.0...v0.9.0
