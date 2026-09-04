@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 修复 Temurin 2026-07 CPU 起四段式版本号（如 `25.0.4.1+1`）下 `jvm available`
+  显示错误版本号（`25.0.4+101`）、照此 `jvm install` 报「API 返回 404」的问题。
+  根因是 Adoptium 的 semver 字段仍编码为三段（`25.0.4+101.0.LTS`，第 4 段被编码进
+  build 号），从 semver 反推的短版本号无法反查 API；现改为直接采用 API 顶层
+  `release_name` 字段（剥 `jdk-` 前缀），保证显示的版本号可安装。影响
+  `jvm available` / `available -a` 展示与 `jvm outdated` 的远端版本号，
+  老版本号（三段式）行为不变。
+
 ### 移除
 
 - 移除发版后自动向 `microsoft/winget-pkgs` 提交 manifest 更新 PR 的 CI job（0.10.0

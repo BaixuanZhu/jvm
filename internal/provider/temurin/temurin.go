@@ -143,8 +143,8 @@ func (t temurin) Resolve(spec app.VersionSpec) (*app.Asset, error) {
 		return nil, err
 	}
 
-	// 规整 ReleaseName (用作目录命名, 不含 distro 前缀)
-	asset.ReleaseName = t.ShortSemver(asset.Semver)
+	// ReleaseName 已由 assetFromRecord 填好 (优先 API release_name 字段,
+	// 见其注释; 不再用 ShortSemver 从 semver 反推 —— 四段式新格式下会失真)
 
 	// 内化 CDN 直链解析: 仅"大版本取最新"场景, 用 /binary/latest 拿 Azure CDN 直链提速。
 	// 解析失败时静默回退到 asset.ZipURL (官方 GitHub releases 链接)。
@@ -199,7 +199,7 @@ func (temurin) ResolveCDNURL(major int) (string, error) {
 // 单次请求即拿全: Adoptium API 单页硬上限 pageLimit (50), 但每个大版本的 GA
 // release 数量远低于此 (JDK 8 历史最长也才 20 条), 无需翻页。page 参数不可用
 // (page>=1 返回 404), 故只发一次请求。
-func (t temurin) ListVersions(major int) ([]*app.Asset, error) {
+func (temurin) ListVersions(major int) ([]*app.Asset, error) {
 	u := fmt.Sprintf(
 		"%s/assets/feature_releases/%d/ga?architecture=%s&os=windows&image_type=jdk&heap_size=normal&vendor=eclipse&page_size=%d",
 		apiBase, major, arch, pageLimit,
@@ -223,7 +223,6 @@ func (t temurin) ListVersions(major int) ([]*app.Asset, error) {
 		if err != nil {
 			continue // 单条记录缺 Windows zip 就跳过, 不影响其余
 		}
-		a.ReleaseName = t.ShortSemver(a.Semver)
 		assets = append(assets, a)
 	}
 	if len(assets) == 0 {
@@ -235,18 +234,21 @@ func (t temurin) ListVersions(major int) ([]*app.Asset, error) {
 // LatestPatch 返回指定大版本的最新 GA 版本 (供 jvm available 表格用)。
 // 比 Resolve 轻量: 只取 feature_releases 端点第一页第一条, 不解析用户输入、
 // 不内化 CDN (表格只展示版本号, 不下载)。
-func (t temurin) LatestPatch(major int) (*app.Asset, error) {
+func (temurin) LatestPatch(major int) (*app.Asset, error) {
 	asset, err := fetchLatestAsset(major)
 	if err != nil {
 		return nil, err
 	}
-	asset.ReleaseName = t.ShortSemver(asset.Semver)
 	return asset, nil
 }
 
 // ShortSemver 把 Adoptium API 返回的 semver (如 "21.0.5+11.0.LTS") 规整为
 // 简短易读的形式 "21.0.5+11"。没有 build 号时只返回 core 部分。
 // override Base 默认 (透传), 因为 Temurin 的 semver 带 ".LTS" 后缀需剥离。
+//
+// 仅作 releaseNameOf 的回退路径 (release_name 字段缺失时): 四段式新版本号
+// (release_name "jdk-25.0.4.1+1" / semver "25.0.4+101.0.LTS") 下本函数会产出
+// "25.0.4+101" —— 无法反查 API 的失真形式, 不应展示给用户。
 func (temurin) ShortSemver(semver string) string {
 	core := semver
 	build := ""
@@ -307,6 +309,7 @@ func MirrorDownloadURL(officialURL string, major int) string {
 
 // releaseRecord 对应 Adoptium API 单条 release 的 JSON 结构 (只取需要的字段)
 type releaseRecord struct {
+	ReleaseName string `json:"release_name"`
 	VersionData struct {
 		Semver string `json:"semver"`
 		Major  int    `json:"major"`
@@ -325,9 +328,14 @@ type releaseRecord struct {
 type releaseResponse []releaseRecord
 
 // assetFromRecord 从一条 release 记录里提取当前架构 (Windows/{arch}) 的 zip 资源,
-// 翻译成发行版无关的 *app.Asset (填齐 Distro/MirrorURL/ReleaseName 外的其他字段;
-// ReleaseName 由调用方在拿到 Semver 后用 ShortSemver 补填)。
-// 两个端点 (feature_releases / release_name) 共用这个逻辑
+// 翻译成发行版无关的 *app.Asset (填齐 Distro/MirrorURL 外的其他字段)。
+// 两个端点 (feature_releases / release_name) 共用这个逻辑。
+//
+// ReleaseName 优先取 API 顶层 release_name 字段 (剥 "jdk-" 前缀):
+// 2026-07 CPU 起补丁版本号改四段式 (release_name "jdk-25.0.4.1+1"),
+// 而 semver 仍编码为三段 ("25.0.4+101.0.LTS", 第 4 段被编码进 build 号),
+// 从 semver 反推的短版本号无法再反查 API (release_name 端点 404)。
+// release_name 字段缺失时回退 ShortSemver (老格式下两者一致)。
 func assetFromRecord(r releaseRecord, hint string) (*app.Asset, error) {
 	if len(r.Binaries) == 0 {
 		return nil, fmt.Errorf("%s 没有 Windows/%s 的 zip 包", hint, arch)
@@ -335,16 +343,28 @@ func assetFromRecord(r releaseRecord, hint string) (*app.Asset, error) {
 	for _, b := range r.Binaries {
 		if b.Package.Link != "" {
 			return &app.Asset{
-				Semver:    r.VersionData.Semver,
-				Major:     r.VersionData.Major,
-				ZipURL:    b.Package.Link,
-				Checksum:  b.Package.SHA256,
-				Distro:    distroName,
-				MirrorURL: MirrorDownloadURL(b.Package.Link, r.VersionData.Major),
+				Semver:      r.VersionData.Semver,
+				Major:       r.VersionData.Major,
+				ZipURL:      b.Package.Link,
+				Checksum:    b.Package.SHA256,
+				Distro:      distroName,
+				MirrorURL:   MirrorDownloadURL(b.Package.Link, r.VersionData.Major),
+				ReleaseName: releaseNameOf(r),
 			}, nil
 		}
 	}
 	return nil, fmt.Errorf("%s 没有可下载的 zip 包", hint)
+}
+
+// releaseNameOf 从 release 记录产出目录命名用的版本号 (不含 distro / jdk- 前缀):
+// 优先顶层 release_name 剥 "jdk-" 前缀, 缺失时回退 ShortSemver 规整 semver。
+// 产出的值经 ResolveReleaseName 补回 "jdk-" 前缀后应能命中原 release_name,
+// 保证 "available 显示 → install 输入" 往返一致。
+func releaseNameOf(r releaseRecord) string {
+	if name := strings.TrimSpace(r.ReleaseName); name != "" {
+		return strings.TrimPrefix(name, "jdk-")
+	}
+	return temurin{}.ShortSemver(r.VersionData.Semver)
 }
 
 // fetchLatestAsset 查询指定大版本的最新 GA 版本, 返回当前架构的 zip 资源。

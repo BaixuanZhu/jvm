@@ -1,6 +1,9 @@
 package temurin
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // TestShortSemver 验证 Temurin semver 规整 (剥离 ".LTS" 后缀等)。
 // ShortSemver 现在是 temurin 结构体方法 (实现 provider.Provider 接口)。
@@ -17,11 +20,86 @@ func TestShortSemver(t *testing.T) {
 		{"23.0.1+11", "23.0.1+11"}, // 已是简短形式
 		{"23.0.1", "23.0.1"},       // 无 build 号
 		{"", ""},                   // 空串
+		// 四段式新版本号 (2026-07 CPU 起): semver 仍编码为三段, 第 4 段被编码进
+		// build 号 —— 本函数产出的 "25.0.4+101" 是无法反查 API 的失真形式
+		// (真实 release_name 是 jdk-25.0.4.1+1), 故 ShortSemver 仅作 fallback,
+		// 正常路径优先用 API 顶层 release_name 字段 (见 releaseNameOf)。
+		{"25.0.4+101.0.LTS", "25.0.4+101"},
+		{"25.0.4.1+1", "25.0.4.1+1"}, // 四段式已是简短形式, 透传
 	}
 	for _, tt := range tests {
 		if got := p.ShortSemver(tt.in); got != tt.want {
 			t.Errorf("ShortSemver(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+// TestAssetFromRecordReleaseName 验证 Asset.ReleaseName 优先取 API 顶层
+// release_name 字段 (剥 jdk- 前缀), 修复 2026-07 CPU 起四段式版本号
+// (jdk-25.0.4.1+1) 下从 semver 反推出 "25.0.4+101" 导致 install 404 的问题。
+//
+// 用真实 API 响应的精简 JSON 反序列化构造 releaseRecord, 同时覆盖 json tag
+// 与解析逻辑; 并断言往返一致 —— 显示的 ReleaseName 经 ResolveReleaseName
+// 补回 jdk- 前缀后应原样还原 API 的 release_name, 即 "available 显示的
+// 版本号 → install 输入" 能命中。纯本地测试, 不发网络请求。
+func TestAssetFromRecordReleaseName(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want string // 期望的 ReleaseName (available 显示 / 目录命名用)
+	}{
+		{
+			"四段式新格式 (2026-07 CPU 起)",
+			`{"release_name": "jdk-25.0.4.1+1",
+			  "version_data": {"semver": "25.0.4+101.0.LTS", "major": 25},
+			  "binaries": [{"package": {
+			    "name": "OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+			    "link": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+			    "checksum": "abc123", "size": 210000000}}]}`,
+			"25.0.4.1+1",
+		},
+		{
+			"三段式老格式",
+			`{"release_name": "jdk-21.0.5+11",
+			  "version_data": {"semver": "21.0.5+11.0.LTS", "major": 21},
+			  "binaries": [{"package": {
+			    "link": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip",
+			    "checksum": "def456", "size": 190000000}}]}`,
+			"21.0.5+11",
+		},
+		{
+			"release_name 字段缺失回退 ShortSemver",
+			`{"version_data": {"semver": "21.0.5+11.0.LTS", "major": 21},
+			  "binaries": [{"package": {
+			    "link": "https://github.com/adoptium/temurin21-binaries/releases/download/x.zip",
+			    "checksum": "def456", "size": 1}}]}`,
+			"21.0.5+11",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var r releaseRecord
+			if err := json.Unmarshal([]byte(tt.json), &r); err != nil {
+				t.Fatalf("JSON 反序列化失败: %v", err)
+			}
+			a, err := assetFromRecord(r, tt.name)
+			if err != nil {
+				t.Fatalf("assetFromRecord 意外报错: %v", err)
+			}
+			if a.ReleaseName != tt.want {
+				t.Errorf("ReleaseName = %q, want %q", a.ReleaseName, tt.want)
+			}
+			// 往返一致性: ReleaseName 补回 jdk- 前缀应还原 API 的 release_name
+			if r.ReleaseName != "" {
+				got, err := temurin{}.ResolveReleaseName(a.ReleaseName)
+				if err != nil {
+					t.Fatalf("ResolveReleaseName(%q) 意外报错: %v", a.ReleaseName, err)
+				}
+				if got != r.ReleaseName {
+					t.Errorf("往返不一致: ResolveReleaseName(%q) = %q, want %q", a.ReleaseName, got, r.ReleaseName)
+				}
+			}
+		})
 	}
 }
 
