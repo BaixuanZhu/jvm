@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"jvm/internal/app"
+	"jvm/internal/junction"
+	"jvm/internal/paths"
 	"jvm/internal/provider"
 )
 
@@ -114,4 +119,21 @@ func TestAvailableGroupsConcurrent(t *testing.T) {
 	name := "fake-cmd-groups-" + t.Name()
 	provider.Register(fakeProvider{name: name})
 	availableGroups(AvailableOptions{All: true}, name)
+}
+
+// TestHome 验证 jvm home 输出 current 链接路径 (临时目录 + 真实 junction,
+// 与 junction 包单测同款手法; 未选版本的 Fail 路径含 os.Exit, 不可单测)。
+func TestHome(t *testing.T) {
+	root := withTempVersions(t)
+	target := filepath.Join(root, "versions", "temurin-21.0.8+7")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := junction.Create(paths.CurrentLink, target); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, Home)
+	if got := strings.TrimSpace(out); got != paths.CurrentLink {
+		t.Errorf("home 输出 = %q, 想 %q", got, paths.CurrentLink)
+	}
 }

@@ -119,6 +119,10 @@ run "5. current + java -version 实跑" current
 expect "current 显示当前版本" "当前版本"
 expect "java -version 实跑成功" "version"
 
+# home 输出 current 链接路径 (单行, 与注册表 JAVA_HOME 同值)
+run "5a. home: 输出 JAVA_HOME 路径" home
+expect "home 指向 current" "current"
+
 # 覆盖全部 5 个 provider 的下载 + 校验路径:
 #   corretto/microsoft/zulu 走 SHA256, liberica 走 SHA1 (多算法校验真实用例)。
 run "6a. install corretto@21 (SHA256, CloudFront)" install corretto@21

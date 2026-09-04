@@ -621,6 +621,16 @@ func Uninstall(args []string) {
 	fmt.Printf("✅ 已卸载 %s\n", dir)
 }
 
+// Home 处理 jvm home: 打印当前 JAVA_HOME 的值 (~/.jvm/current, 单行无装饰)。
+// 与注册表持久化的 JAVA_HOME 同值, 且切换版本后路径不变 —— 供脚本 / IDE 配置
+// 直接引用, 免去自行拼接。没选版本时报错退出 (此时 JAVA_HOME 本就无效)。
+func Home() {
+	if junction.ReadTarget() == "" {
+		app.Fail("当前没有选中任何版本, 先 jvm use <版本号>")
+	}
+	fmt.Println(paths.CurrentLink)
+}
+
 // Current 处理 jvm current: 显示当前版本并实际执行 java -version 验证。
 func Current() {
 	t := junction.ReadTarget()
