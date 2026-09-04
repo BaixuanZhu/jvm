@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-05
+
 ### 新增
 
 - `jvm update <[distro@]大版本> [-y]`：patch 升级一步到位——安装该大版本最新 patch
