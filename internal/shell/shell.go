@@ -24,19 +24,17 @@ const profileMarker = "# >>> jvm shell init >>>"
 
 // integrationVersionToken 是集成块的版本标记 (嵌在块内)。
 // 幂等检测对集成块额外比较此 token: 老块没有 token (或 token 过期) 时自动重写,
-// 保证升级 jvm 后老用户能拿到新钩子 (纯 marker 检测只判存在不比内容,
-// 补全块沿用旧策略不变)。改集成脚本内容时同步递增此 token。
+// 保证升级 jvm 后老用户能拿到新钩子。改集成脚本内容时同步递增此 token。
 const integrationVersionToken = "# jvm-integration: v2"
 
 // EnsureIntegration 静默确保 shell 集成与 Tab 补全已安装到 PowerShell 和 bash 的 profile。
-// 幂等 (已注入跳过)、静默 (正常无输出)、容错 (失败不中断)。
+// 幂等 (已是当前版本跳过)、静默 (正常无输出)、容错 (失败不中断)。
 //
 // shell 集成和补全是两个独立的关注点, 各用独立的 profile 标记块, 互不影响升级。
-//
-// 集成块带 integrationVersionToken 版本标记: 老版本块自动重写升级 (v2 起含
-// .jvmrc 自动切换钩子); 补全块仍以 marker 存在与否为准 —— 内容变更后用户需
-// 手动 `jvm completion <shell> --install` 强制重写。distro 列表在生成补全脚本时
-// 从 provider 注册表读取并嵌入。
+// 两类块都走版本化重写 (ensureBlockVersioned): 块缺失、或缺当前版本 token 时
+// 按标记换块重写 —— 升级 jvm 后 (无论经 upgrade / 安装器 / 手动换便携 zip) 老用户
+// 下次运行 jvm 即自动拿到新脚本, 无需手动重装。改集成/补全脚本内容 (含新增发行版
+// 导致的 distro 列表变化) 必须递增对应 token。
 func EnsureIntegration() {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -45,36 +43,25 @@ func EnsureIntegration() {
 	distros := distroNames()
 	// PowerShell 5.x + 7+ 两个 profile 都写
 	for _, p := range []string{psProfilePath(), ps7ProfilePath()} {
-		ensureBlockVersioned(p, psScript(exePath))
-		if !completionHasIntegration(p) {
-			_ = installToProfile(p, psCompletionScript(distros))
-		}
+		ensureBlockVersioned(p, profileMarker, integrationVersionToken, psScript(exePath))
+		ensureBlockVersioned(p, completionMarker, completionVersionToken, psCompletionScript(distros))
 	}
 	// Git Bash
 	bp := bashProfilePath()
-	ensureBlockVersioned(bp, bashScript(exePath))
-	if !completionHasIntegration(bp) {
-		_ = installToProfile(bp, bashCompletionScript(distros))
-	}
+	ensureBlockVersioned(bp, profileMarker, integrationVersionToken, bashScript(exePath))
+	ensureBlockVersioned(bp, completionMarker, completionVersionToken, bashCompletionScript(distros))
 }
 
-// ensureBlockVersioned 确保某 profile 的集成块存在且为当前版本:
-// 没有块 → 写入; 有块但缺当前版本 token → 按标记换块重写。
+// ensureBlockVersioned 确保某 profile 的指定标记块存在且为当前版本:
+// 没有块、或缺当前版本 token → 按标记换块重写 (installToProfile 本就按标记替换)。
+// marker/token 参数化后集成块与补全块共用, 各传各自的标记与版本 token。
 // 提取成独立函数 (显式路径参数) 便于用临时 profile 做测试。
-func ensureBlockVersioned(profilePath, script string) {
-	if profileHasIntegration(profilePath) && blockHasVersionToken(profilePath) {
+func ensureBlockVersioned(profilePath, marker, token, script string) {
+	data, err := os.ReadFile(profilePath)
+	if err == nil && strings.Contains(string(data), marker) && strings.Contains(string(data), token) {
 		return
 	}
 	_ = installToProfile(profilePath, script)
-}
-
-// blockHasVersionToken 检查 profile 是否包含当前版本的集成块 token。
-func blockHasVersionToken(profilePath string) bool {
-	data, err := os.ReadFile(profilePath)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(data), integrationVersionToken)
 }
 
 // completionHasIntegration 检测某个 profile 文件是否已注入 jvm 补全块。

@@ -199,7 +199,7 @@ func TestEnsureBlockVersionedRewrites(t *testing.T) {
 		profile := filepath.Join(t.TempDir(), "profile.ps1")
 		os.WriteFile(profile, []byte("user stuff\n"+oldBlock+"\n"+completionBlock+"\n"), 0o644)
 
-		ensureBlockVersioned(profile, psScript(`C:\fake\jvm.exe`))
+		ensureBlockVersioned(profile, profileMarker, integrationVersionToken, psScript(`C:\fake\jvm.exe`))
 
 		data, _ := os.ReadFile(profile)
 		got := string(data)
@@ -226,7 +226,7 @@ func TestEnsureBlockVersionedRewrites(t *testing.T) {
 		os.WriteFile(profile, []byte("user stuff\n"+current+"\n"), 0o644)
 		before, _ := os.ReadFile(profile)
 
-		ensureBlockVersioned(profile, current)
+		ensureBlockVersioned(profile, profileMarker, integrationVersionToken, current)
 
 		after, _ := os.ReadFile(profile)
 		if string(before) != string(after) {
@@ -236,10 +236,57 @@ func TestEnsureBlockVersionedRewrites(t *testing.T) {
 
 	t.Run("空 profile 直接写入", func(t *testing.T) {
 		profile := filepath.Join(t.TempDir(), "profile.ps1")
-		ensureBlockVersioned(profile, psScript(`C:\fake\jvm.exe`))
+		ensureBlockVersioned(profile, profileMarker, integrationVersionToken, psScript(`C:\fake\jvm.exe`))
 		data, _ := os.ReadFile(profile)
 		if !strings.Contains(string(data), integrationVersionToken) {
 			t.Error("应写入集成块")
+		}
+	})
+}
+
+// TestCompletionBlockVersionedRewrites 验证补全块的版本化重写: 只有 marker、
+// 没有 token 的老补全块 (0.11.1 及以前的形态) 被换成新块, 集成块与用户自有内容
+// 不动; 已是当前版本则原样保留。
+func TestCompletionBlockVersionedRewrites(t *testing.T) {
+	oldCompletion := completionMarker + "\n_jvm_commands=\"install use\"\n" + completionEndMarker
+
+	t.Run("老补全块无 token 被重写", func(t *testing.T) {
+		profile := filepath.Join(t.TempDir(), "Microsoft.PowerShell_profile.ps1")
+		integration := psScript(`C:\fake\jvm.exe`)
+		os.WriteFile(profile, []byte("user stuff\n"+integration+"\n"+oldCompletion+"\n"), 0o644)
+
+		ensureBlockVersioned(profile, completionMarker, completionVersionToken, psCompletionScript([]string{"temurin"}))
+
+		got, _ := os.ReadFile(profile)
+		s := string(got)
+		if !strings.Contains(s, completionVersionToken) {
+			t.Error("重写后应含补全版本 token")
+		}
+		if strings.Contains(s, `_jvm_commands="install use"`) {
+			t.Error("老补全块内容应被移除")
+		}
+		if !strings.Contains(s, integrationVersionToken) {
+			t.Error("集成块不应被动到")
+		}
+		if !strings.Contains(s, "user stuff") {
+			t.Error("用户自有内容不应被动到")
+		}
+		if strings.Count(s, completionMarker) != 1 {
+			t.Errorf("补全块 marker 应恰好一个, got %d", strings.Count(s, completionMarker))
+		}
+	})
+
+	t.Run("已是当前版本不重写", func(t *testing.T) {
+		profile := filepath.Join(t.TempDir(), ".bashrc")
+		current := bashCompletionScript([]string{"temurin"})
+		os.WriteFile(profile, []byte(current+"\n"), 0o644)
+		before, _ := os.ReadFile(profile)
+
+		ensureBlockVersioned(profile, completionMarker, completionVersionToken, current)
+
+		after, _ := os.ReadFile(profile)
+		if string(before) != string(after) {
+			t.Error("已是当前版本的补全块不应被重写")
 		}
 	})
 }

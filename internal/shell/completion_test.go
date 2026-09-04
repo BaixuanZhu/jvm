@@ -18,6 +18,7 @@ func TestPsCompletionScript(t *testing.T) {
 	}{
 		{"含标记头", completionMarker},
 		{"含标记尾", completionEndMarker},
+		{"含版本 token", completionVersionToken},
 		{"用 Register-ArgumentCompleter", "Register-ArgumentCompleter -Native -CommandName jvm"},
 		{"含本地版本函数", "_jvmLocalVersions"},
 		{"嵌入 corretto", "'corretto'"},
@@ -28,6 +29,11 @@ func TestPsCompletionScript(t *testing.T) {
 		{"含子命令 use", "'use'"},
 		{"含子命令 pin", "'pin'"},
 		{"含子命令 available", "'available'"},
+		{"含子命令 outdated", "'outdated'"},
+		{"含子命令 exec", "'exec'"},
+		{"含子命令 update", "'update'"},
+		{"含子命令 home", "'home'"},
+		{"update 参数补全分支", "-eq 'update'"},
 	}
 	for _, c := range checks {
 		if !strings.Contains(script, c.want) {
@@ -46,6 +52,7 @@ func TestBashCompletionScript(t *testing.T) {
 	}{
 		{"含标记头", completionMarker},
 		{"含标记尾", completionEndMarker},
+		{"含版本 token", completionVersionToken},
 		{"注册 complete -F _jvm", "complete -F _jvm jvm"},
 		{"含本地版本函数", "_jvm_local_versions()"},
 		{"嵌入 corretto", "corretto"},
@@ -54,7 +61,11 @@ func TestBashCompletionScript(t *testing.T) {
 		{"含 compgen", "compgen"},
 		{"install 分支", "install)"},
 		{"available 分支", "available)"},
+		{"update 分支", "update)"},
 		{"含子命令 pin", " pin "},
+		{"含子命令 outdated", " outdated "},
+		{"含子命令 exec", " exec "},
+		{"含子命令 home", " home "},
 		{"use 分支", "use|pin|uninstall|rm)"},
 	}
 	for _, c := range checks {
@@ -170,5 +181,21 @@ func TestFirstLine(t *testing.T) {
 				t.Errorf("firstLine(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCompletionScriptsASCII 验证两个补全脚本纯 ASCII (与集成脚本同款约束:
+// PowerShell 5.1 在中文系统上按 GBK 解码非 ASCII 字节会损坏语法)。
+func TestCompletionScriptsASCII(t *testing.T) {
+	for name, s := range map[string]string{
+		"powershell": psCompletionScript([]string{"temurin"}),
+		"bash":       bashCompletionScript([]string{"temurin"}),
+	} {
+		for i := 0; i < len(s); i++ {
+			if s[i] > 127 {
+				t.Errorf("%s 脚本第 %d 字节非 ASCII: %q", name, i, s[i])
+				break
+			}
+		}
 	}
 }

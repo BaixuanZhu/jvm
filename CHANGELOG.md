@@ -18,6 +18,20 @@
 - `jvm home`：打印当前 JAVA_HOME 路径（`~/.jvm/current`，单行无装饰），与注册表
   持久化的值一致且切换版本后不变，供 CI 脚本 / IDE 配置直接引用。
 
+### 修复
+
+- Tab 补全的子命令列表补齐 `outdated` / `exec`（引入补全时即遗漏），并新增
+  `update` / `home` 的补全；`jvm update <TAB>` 补全本地已装版本的
+  `distro@大版本` 形式（update 仅接受大版本号）。
+
+### 变更
+
+- 补全块引入版本 token（`jvm-completion: v1`）并纳入启动自举的版本化重写：
+  老用户 profile 里只有 marker 的旧补全块，下次运行 jvm 时自动重写为新内容
+  （与集成块 v2 同机制），覆盖 `jvm upgrade` / 安装器 / 手动换便携 zip 全部
+  更新途径。此前补全块只按 marker 存在性判断，内容变更后老用户需手动执行
+  `jvm completion <shell> --install` 才能刷新。
+
 ## [0.11.1] - 2026-09-04
 
 ### 修复
