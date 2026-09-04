@@ -104,7 +104,9 @@ run_fail() {
 }
 
 run "1. version" version
-expect "version 输出版本号" "^jvm [0-9]"
+# 版本号两种合法形态: git describe 语义版 (0.11.1-3-ge1da48e) 或无 tag 回退的
+# 短哈希 (e1da48e), 首字符均落在 [0-9a-f]; CI 已拉全量+tag, 本地无 tag 也能过。
+expect "version 输出版本号" "^jvm [0-9a-f]"
 
 run "2. install temurin@21 (SHA256)" install temurin@21
 expect "temurin 安装完成" "安装完成"

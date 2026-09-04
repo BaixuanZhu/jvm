@@ -38,7 +38,12 @@ jobs:
       # 关自举: 不写 runner 的 shell profile / 用户 PATH (bootstrap.go 三层关闭之一)
       JVM_NO_BOOTSTRAP: '1'
     steps:
+      # 拉全量历史 + tag: make build 的 VERSION 走 git describe, 浅克隆无 tag 时
+      # --always 回退短哈希, 集成脚本 case 1 的版本号断言只能碰运气 (曾因 e1da48e
+      # 首字符非数字而误报失败)。
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
