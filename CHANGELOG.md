@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `jvm update <[distro@]大版本> [-y]`：patch 升级一步到位——安装该大版本最新 patch、
+  （当前正在使用该组版本时）自动切换 current、清理组内全部旧 patch 目录（被进程
+  占用删不掉的跳过并提示稍后手动 `uninstall`）。仅接受大版本号；`jvm upgrade`
+  仍只负责 jvm 自身更新，两者语义分离。`jvm outdated` 的升级提示同步改为引导
+  `jvm update`。
+
 ## [0.11.1] - 2026-09-04
 
 ### 修复

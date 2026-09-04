@@ -183,6 +183,33 @@ expect "available 打印大版本表" "可安装的大版本"
 run "15. outdated: patch 升级检查" outdated
 expect "outdated 打印查询表头" "最新 patch"
 
+# --- jvm update: patch 升级闭环 (装新 → 切换 → 清理旧版) ---
+# 步骤 2 已装 21 的最新 patch, 这里补装一个旧 patch 并切过去, 再 update 回来。
+# 覆盖 "最新版已装 → Install 幂等跳过下载, 直接切换 + 删旧" 的编排路径
+# (全新下载链路由步骤 2 的 install 覆盖, 免去重复下载 ~200MB)。
+# 21.0.2+13 是 Adoptium 历史 GA, release_name 端点长期可查。
+run "15a. install temurin@21.0.2+13 (旧 patch, 供 update 升级)" install temurin@21.0.2+13
+expect "旧 patch 安装完成" "安装完成"
+
+run "15b. use 切到旧 patch" use temurin@21.0.2+13
+expect "已切到旧 patch" "已切换"
+
+run "15c. update 21 -y: 升级回最新 (当前正用旧版, 应自动切换)" update 21 -y
+expect "update 升级完成" "已升级"
+
+run "15d. current 验证已切到新版" current
+expect "current 为 temurin" "temurin"
+
+echo "### 15e. 旧 patch 目录应已被 update 清理 ###"
+if [ -d "$JVM_HOME/versions/temurin-21.0.2+13" ]; then
+    echo "  ✗ temurin-21.0.2+13 仍存在, update 未清理旧目录" >&2
+    exit 1
+fi
+echo "  ✓ 旧目录已清理"
+
+run "15f. update 幂等: 已是最新" update 21 -y
+expect "提示已是最新" "已是最新"
+
 # --- jvm use --auto: .jvmrc 自动切换状态机 ---
 # 前置: current 为 temurin@21 (步骤 4 切的, 后续 install 不切)。
 # 注意 NO_RC 须选一条向上都无 .jvmrc 的链 (runner 的 mktemp 目录满足)。

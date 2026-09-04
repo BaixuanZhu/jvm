@@ -96,6 +96,8 @@ func main() {
 		cmd.Available(opts)
 	case "outdated":
 		cmd.Outdated()
+	case "update":
+		cmd.Update(args)
 	case "uninstall", "rm":
 		cmd.Uninstall(args)
 	case "current":
@@ -155,6 +157,8 @@ func usage() {
   list                     列出本地已安装的版本
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
   outdated                 检查已安装版本是否有新 patch 可升级
+  update <[distro@]大版本> [-y]  升级该大版本到最新 patch: 装新 → 切换 → 清理旧版
+                           (仅接受大版本号; 当前正在使用该组版本时自动切换, -y 跳过确认)
   uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)
   current                  显示当前正在使用的版本
   exec <版本> -- <命令>    用指定版本执行命令, 不动全局 (例如: jvm exec 17 -- mvn test)

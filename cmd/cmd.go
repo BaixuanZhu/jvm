@@ -552,6 +552,16 @@ func padCenter(s string, w int) string {
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
 }
 
+// confirm 在终端打印 prompt 并等待 y/N 确认: 输入 y/yes (大小写不敏感) 返回 true,
+// 其余任何输入 (含 EOF) 返回 false。供 Uninstall / Update 等破坏性操作共用。
+func confirm(prompt string) bool {
+	fmt.Print(prompt)
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes"
+}
+
 // Uninstall 处理 jvm uninstall <版本号> [-y|--yes]
 // 默认会在删除前要求确认, 加 -y/--yes 可跳过 (便于脚本调用)。
 func Uninstall(args []string) {
@@ -589,11 +599,7 @@ func Uninstall(args []string) {
 
 	// 删除前确认 (除非 -y)
 	if !assumeYes {
-		fmt.Printf("将永久删除 ~/.jvm/versions/%s, 确定? [y/N] ", dir)
-		reader := bufio.NewReader(os.Stdin)
-		line, _ := reader.ReadString('\n')
-		ans := strings.ToLower(strings.TrimSpace(line))
-		if ans != "y" && ans != "yes" {
+		if !confirm(fmt.Sprintf("将永久删除 ~/.jvm/versions/%s, 确定? [y/N] ", dir)) {
 			fmt.Println("已取消。")
 			return
 		}

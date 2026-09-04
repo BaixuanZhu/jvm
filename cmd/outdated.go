@@ -1,9 +1,8 @@
 // 本文件实现 jvm outdated 子命令: 检查本地已装版本是否有新 patch 可升级。
 //
 // JDK 季度安全更新是刚需, 本命令扫 ~/.jvm/versions 全部 (发行版, 大版本) 组合,
-// 并发查各 provider 的 LatestPatch, 列出落后行并给出升级命令。
-// 升级不需要 --force: 不同 patch 是不同目录名, jvm install <distro>@<major>
-// 会解析到新版本并列安装, 旧版用 jvm uninstall 清理。
+// 并发查各 provider 的 LatestPatch, 列出落后行并提示用 jvm update 一键升级
+// (update 负责装新 → 切换 → 清理旧版的完整闭环)。
 package cmd
 
 import (
@@ -121,9 +120,9 @@ func printOutdated(rows []outdatedRow) {
 			fmt.Printf("  %s@%d    %s → %s\n", r.group.distro, r.group.major, r.group.localVer, r.latest)
 		}
 		fmt.Println()
-		fmt.Println("升级: jvm install <上面左列的 distro@大版本>   例如: jvm install " +
+		fmt.Println("升级: jvm update <distro@大版本>   例如: jvm update " +
 			upgradable[0].group.distro + "@" + itoa(upgradable[0].group.major))
-		fmt.Println("      (新版本并列安装, 装好后 jvm use 切换, 旧版 jvm uninstall 清理)")
+		fmt.Println("      (自动安装最新 patch, 切换并清理旧版本)")
 	}
 	if len(failed) > 0 {
 		fmt.Println()

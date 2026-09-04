@@ -84,7 +84,7 @@ func TestPrintOutdatedMixed(t *testing.T) {
 	for _, want := range []string{
 		"可升级的版本",
 		"temurin@21    21.0.5+11 → 21.0.8+7",
-		"jvm install temurin@21",
+		"jvm update temurin@21",
 		"查询失败",
 		"zulu@17",
 	} {
@@ -166,7 +166,7 @@ func TestOutdatedEndToEnd(t *testing.T) {
 	for _, want := range []string{
 		"可升级的版本",
 		name + "@21    21.0.5+11 → 21.0.8+7",
-		"jvm install " + name + "@21",
+		"jvm update " + name + "@21",
 		"查询失败",
 		name + "@25",
 	} {
