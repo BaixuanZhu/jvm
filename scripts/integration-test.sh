@@ -394,6 +394,18 @@ run "33. doctor: 残留清理后复查" doctor
 expect "无旧 JDK 残留" "无旧 JDK 残留"
 expect "current/bin 未被误删" "current/bin 已在用户 PATH"
 
+# --- doctor --fix: 解压半成品 (.tmp-extract-*) 清理闭环 ---
+mkdir -p "$JVM_HOME/.tmp-extract-jdk-fake"
+run "33a. doctor 检出解压半成品" doctor
+expect "检出半成品残留" "解压半成品"
+run "33b. doctor --fix -y 清理半成品" doctor --fix -y
+expect "半成品已清理" "已清理 1 个半成品"
+if [ -d "$JVM_HOME/.tmp-extract-jdk-fake" ]; then
+    echo "  ✗ .tmp-extract-jdk-fake 仍存在" >&2
+    exit 1
+fi
+echo "  ✓ 半成品目录已删除"
+
 run "34. uninstall temurin@21 -y" uninstall temurin@21 -y
 expect "uninstall 成功" "已卸载"
 

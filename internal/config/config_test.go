@@ -261,3 +261,27 @@ func TestLoadInstallDirEmptyIgnored(t *testing.T) {
 		t.Errorf("空白环境变量不应覆盖文件, got %q", cfg.InstallDir)
 	}
 }
+
+// TestValidateFile 验证 doctor 诊断用的配置文件校验: 缺失正常、合法通过、
+// 语法非法报原始解析错误。
+func TestValidateFile(t *testing.T) {
+	t.Run("文件不存在", func(t *testing.T) {
+		if err := ValidateFile(filepath.Join(t.TempDir(), "config.toml")); err != nil {
+			t.Errorf("缺失应视为正常, got %v", err)
+		}
+	})
+	t.Run("合法 TOML", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "config.toml")
+		os.WriteFile(p, []byte("mirror = \"https://m.example\"\narch = \"aarch64\"\n"), 0o644)
+		if err := ValidateFile(p); err != nil {
+			t.Errorf("合法配置应通过, got %v", err)
+		}
+	})
+	t.Run("语法非法", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "config.toml")
+		os.WriteFile(p, []byte("arch = \nbroken ["), 0o644)
+		if err := ValidateFile(p); err == nil {
+			t.Error("坏语法应报错")
+		}
+	})
+}

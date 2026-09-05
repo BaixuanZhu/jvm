@@ -566,3 +566,83 @@ func TestJunctionFixPlan(t *testing.T) {
 		}
 	})
 }
+
+// TestCheckConfig 验证配置文件检查: 缺失正常、可解析通过、语法非法失败。
+func TestCheckConfig(t *testing.T) {
+	t.Run("无 config.toml", func(t *testing.T) {
+		c := checkConfig(t.TempDir())
+		if !c.ok {
+			t.Errorf("配置缺失应为正常, got detail=%q", c.detail)
+		}
+	})
+	t.Run("合法 config.toml", func(t *testing.T) {
+		root := t.TempDir()
+		os.WriteFile(filepath.Join(root, "config.toml"), []byte("arch = \"x64\"\n"), 0o644)
+		if c := checkConfig(root); !c.ok {
+			t.Errorf("合法配置应通过, got detail=%q", c.detail)
+		}
+	})
+	t.Run("语法非法 config.toml", func(t *testing.T) {
+		root := t.TempDir()
+		os.WriteFile(filepath.Join(root, "config.toml"), []byte("arch = \nbroken ["), 0o644)
+		c := checkConfig(root)
+		if c.ok {
+			t.Error("坏语法应失败")
+		}
+		if !strings.Contains(c.detail, "解析失败") || c.fix == "" {
+			t.Errorf("detail=%q fix=%q, 应含解析失败与修复建议", c.detail, c.fix)
+		}
+	})
+}
+
+// TestCheckTmpResidue 验证解压半成品残留检查与 TmpResidueDirs 同源。
+func TestCheckTmpResidue(t *testing.T) {
+	t.Run("无残留", func(t *testing.T) {
+		if c := checkTmpResidue(t.TempDir()); !c.ok {
+			t.Error("无残留应通过")
+		}
+	})
+	t.Run("有半成品目录", func(t *testing.T) {
+		root := t.TempDir()
+		os.MkdirAll(filepath.Join(root, ".tmp-extract-jdk-21.0.5+11"), 0o755)
+		os.WriteFile(filepath.Join(root, "normal-dir-marker"), []byte("x"), 0o644) // 非目录不算
+		c := checkTmpResidue(root)
+		if c.ok {
+			t.Error("有半成品应失败")
+		}
+		if len(TmpResidueDirs(root)) != 1 {
+			t.Errorf("TmpResidueDirs = %v, 想 1 条", TmpResidueDirs(root))
+		}
+	})
+	t.Run("root 不存在", func(t *testing.T) {
+		if c := checkTmpResidue(filepath.Join(t.TempDir(), "missing")); !c.ok {
+			t.Error("root 不存在视为无残留")
+		}
+	})
+}
+
+// TestCheckCache 验证缓存汇报: 恒通过, 统计 zip/分片, 超阈值给清理提示。
+func TestCheckCache(t *testing.T) {
+	t.Run("空缓存", func(t *testing.T) {
+		if c := checkCache(t.TempDir()); !c.ok {
+			t.Error("空缓存应通过 (信息性检查)")
+		}
+	})
+	t.Run("zip 与 part 分片统计", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "temurin-21.zip"), make([]byte, 2048), 0o644)
+		os.WriteFile(filepath.Join(dir, "corretto-21.zip"), make([]byte, 1024), 0o644)
+		os.WriteFile(filepath.Join(dir, "zulu-21.zip.part"), make([]byte, 512), 0o644)
+		c := checkCache(dir)
+		if !c.ok {
+			t.Error("缓存存在也应通过 (信息性检查)")
+		}
+		zips, parts, total := cacheStats(dir)
+		if zips != 2 || parts != 1 || total != 3072 {
+			t.Errorf("cacheStats = (%d, %d, %d), 想 (2, 1, 3072)", zips, parts, total)
+		}
+		if !strings.Contains(c.detail, "未完成分片") {
+			t.Errorf("含 .part 时 detail 应提示分片, got %q", c.detail)
+		}
+	})
+}

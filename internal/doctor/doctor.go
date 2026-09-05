@@ -2,6 +2,7 @@
 //
 // 检查项 (每项输出 ✓ 通过 / ✗ 有问题, ✗ 附修复建议):
 //   - 目录结构: ~/.jvm 和 ~/.jvm/versions 是否存在
+//   - 配置文件: config.toml 存在时是否可解析 (Load 的启动警告用户未必注意到)
 //   - junction: current 链接是否存在且指向真实存在的版本目录
 //   - JAVA_HOME: 注册表持久化值是否指向 ~/.jvm/current
 //   - PATH 冲突: 是否有别的 java.exe 出现在 ~/.jvm/current/bin 之前 (会抢先)
@@ -9,16 +10,19 @@
 //   - current 的 java: ~/.jvm/current/bin/java.exe 是否存在
 //   - current 的 java 版本: 实跑 java -version 是否成功 (排除损坏二进制)
 //   - 版本目录完整性: ~/.jvm/versions/ 下各目录是否都有 bin/java.exe
+//   - 临时目录残留: ~/.jvm 下的 .tmp-extract-* 解压半成品 (中断安装遗留)
 //   - 用户 PATH: 注册表用户 PATH 是否包含 current/bin (保证新终端能找到 java)
 //   - 注册表 PATH 残留: 用户 PATH 里是否有非 current/bin 的旧 JDK 路径
+//   - 下载缓存: 缓存占用汇报 (信息性, 恒通过 —— 缓存与 .part 续传分片是
+//     设计行为, 删不删交给用户)
 //
 // 检查函数都接收显式参数 (路径/已读好的环境值), 不直接读全局状态 ——
 // 这样可以用临时目录和注入值做表驱动测试, 不污染真实注册表/profile。
 // Run() 负责从 paths/env/shell 取真实状态再分发给检查函数。
 //
 // doctor --fix 在报告后对失败项执行自动修复 (见 applyFixes): 只修无争议项
-// (目录/JAVA_HOME/junction 重建/profile 注入/PATH 补全/残留清理), 残留清理
-// 前逐条确认; 需重装或动系统 PATH 的项保留建议不动。
+// (目录/JAVA_HOME/junction 重建/profile 注入/PATH 补全/残留清理/解压半成品
+// 清理), 残留清理前逐条确认; 需重装或动系统 PATH 的项保留建议不动。
 package doctor
 
 import (
@@ -31,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"jvm/internal/config"
 	"jvm/internal/env"
 	"jvm/internal/junction"
 	"jvm/internal/paths"
@@ -77,6 +82,7 @@ func Run(fix, assumeYes bool, installDir string) {
 
 	checks := []check{
 		checkDirs(paths.Root, paths.VersionsDir, legacyVersions),
+		checkConfig(paths.Root),
 		checkJunction(paths.CurrentLink),
 		checkJavaHome(javaHome, paths.CurrentLink),
 		checkPathConflict(os.Getenv("PATH"), paths.CurrentLink),
@@ -85,8 +91,10 @@ func Run(fix, assumeYes bool, installDir string) {
 		checkCurrentJava(paths.CurrentLink),
 		checkJavaVersion(javaBin, runJavaVersion),
 		checkVersionsIntegrity(paths.VersionsDir),
+		checkTmpResidue(paths.Root),
 		checkUserPathCurrent(regPath, paths.CurrentLink),
 		checkRegistryPathResidue(regPath, paths.CurrentLink),
+		checkCache(paths.CacheDir),
 	}
 
 	var failed []check
@@ -163,6 +171,100 @@ func countSubdirs(dir string) int {
 		}
 	}
 	return n
+}
+
+// checkConfig 检查 config.toml 是否可解析。缺失视为正常 (未使用自定义配置);
+// 存在但语法非法时, 启动时 Load 只在 stderr 警告一次, 用户未必注意到,
+// 这里显式暴露 (此时全部配置回退默认, mirror/arch 等自定义项静默失效)。
+func checkConfig(root string) check {
+	path := filepath.Join(root, "config.toml")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return check{ok: true, name: "配置文件", detail: "未使用自定义配置 (全部默认值)"}
+	}
+	if err := config.ValidateFile(path); err != nil {
+		return check{
+			ok:     false,
+			name:   "配置文件",
+			detail: fmt.Sprintf("config.toml 解析失败 (当前全部回退默认值): %v", err),
+			fix:    "修正 TOML 语法, 或删除该文件回退全部默认值",
+		}
+	}
+	return check{ok: true, name: "配置文件", detail: "config.toml 可解析"}
+}
+
+// checkTmpResidue 检查 jvm 根目录下的解压临时目录残留 (.tmp-extract-*,
+// 安装/升级时解压中断留下的半成品, 白占磁盘且不会自愈)。
+func checkTmpResidue(root string) check {
+	dirs := TmpResidueDirs(root)
+	if len(dirs) == 0 {
+		return check{ok: true, name: "临时目录残留", detail: "无 .tmp-extract-* 解压半成品"}
+	}
+	return check{
+		ok:     false,
+		name:   "临时目录残留",
+		detail: fmt.Sprintf("%d 个解压半成品目录残留 (安装中断遗留)", len(dirs)),
+		fix:    "jvm doctor --fix 自动清理, 或手动删除 .tmp-extract-* 目录",
+	}
+}
+
+// TmpResidueDirs 列出 root 下全部 .tmp-extract-* 目录的完整路径。
+// 诊断 (checkTmpResidue) 与 --fix 修复同源, 保证判定与清理看的是同一份清单。
+// 目录不存在或无残留返回 nil。
+func TmpResidueDirs(root string) []string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), ".tmp-extract-") {
+			dirs = append(dirs, filepath.Join(root, e.Name()))
+		}
+	}
+	return dirs
+}
+
+// cacheSuggestBytes 是缓存占用的建议清理阈值 (超过时 detail 附清理提示)。
+const cacheSuggestBytes = 1 << 30 // 1 GB
+
+// checkCache 汇报下载缓存占用 (信息性检查, 恒通过 —— 缓存 zip 是设计行为,
+// .part 分片是断点续传资源, 都不是故障, 删不删交给用户)。
+func checkCache(cacheDir string) check {
+	zips, parts, total := cacheStats(cacheDir)
+	detail := fmt.Sprintf("%d 个安装包 zip 共 %.1f MB", zips, float64(total)/1024/1024)
+	if parts > 0 {
+		detail += fmt.Sprintf(", %d 个未完成分片 (.part)", parts)
+	}
+	if total >= cacheSuggestBytes || parts > 0 {
+		detail += ", 可 jvm cache clean 释放"
+	}
+	return check{ok: true, name: "下载缓存", detail: detail}
+}
+
+// cacheStats 统计缓存目录的 zip 数量、.part 分片数与 zip 总大小
+// (目录不存在视为空)。
+func cacheStats(cacheDir string) (zips, parts int, total int64) {
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return 0, 0, 0
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(e.Name(), ".zip"):
+			zips++
+			total += info.Size()
+		case strings.HasSuffix(e.Name(), ".zip.part"):
+			parts++
+		}
+	}
+	return zips, parts, total
 }
 
 // checkJunction 检查 current 链接是否有效。
@@ -487,6 +589,20 @@ func applyFixes(failed []check, assumeYes bool, regPath string) {
 			fixed++
 		case "注册表 PATH 残留":
 			fixResidue(regPath, assumeYes)
+			fixed++
+		case "临时目录残留":
+			// 纯临时目录无争议, 直接清 (extractAndPlace 每次也会先 RemoveAll,
+			// 这里只是替用户把中断遗留的孤儿清掉)。
+			dirs := TmpResidueDirs(paths.Root)
+			removed := 0
+			for _, d := range dirs {
+				if err := os.RemoveAll(d); err != nil {
+					fmt.Printf("  ✗ 临时目录残留: 删除 %s 失败: %v\n", d, err)
+					continue
+				}
+				removed++
+			}
+			fmt.Printf("  ✓ 临时目录残留: 已清理 %d 个半成品目录\n", removed)
 			fixed++
 		default:
 			// PATH 冲突 / current 的 java / java 版本 / 版本目录完整性: 需手动或重装

@@ -67,6 +67,21 @@ func configPath() string {
 	return filepath.Join(paths.Root, "config.toml")
 }
 
+// ValidateFile 检查配置文件是否可解析 (供 doctor 诊断)。
+// 文件不存在视为正常 (返回 nil, 未使用自定义配置); 存在但 TOML 语法非法
+// 返回原始解析错误。
+func ValidateFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var fileCfg fileConfig
+	return toml.Unmarshal(data, &fileCfg)
+}
+
 // Load 读取并合并配置: 默认值 ← 配置文件 ← 环境变量。
 // 配置文件缺失视为正常; 解析失败打印警告并回退默认。
 func Load() Config {
