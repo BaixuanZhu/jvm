@@ -142,6 +142,28 @@ expect "graalvm 安装完成" "安装完成"
 run "6f. available graalvm: 大版本列表" available graalvm
 expect "graalvm 大版本表" "可安装的大版本"
 
+# --- temurin-ea: 早期访问版本 (EA 大版本随时间漂移, 从 available 输出解析) ---
+run "6g. available temurin-ea" available temurin-ea
+expect "EA 大版本表" "可安装的大版本"
+EA_MAJOR="$(printf '%s\n' "$LAST_OUT" | awk -F'|' '{gsub(/ /,"",$2)} $2 ~ /^[0-9]+$/ {print $2; exit}')"
+if [ -z "$EA_MAJOR" ]; then
+    echo "  ✗ 未能从 available temurin-ea 输出解析 EA 大版本" >&2
+    printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+    exit 1
+fi
+run "6h. install temurin-ea@${EA_MAJOR} (GitHub release 资产, 无镜像)" install "temurin-ea@${EA_MAJOR}"
+expect "EA 安装完成" "安装完成"
+
+run "6i. use 切到 EA 版本 (多段 distro 目录名 + junction)" use "temurin-ea@${EA_MAJOR}"
+expect "EA 已切换" "已切换"
+
+run "6j. uninstall EA 版本" uninstall "temurin-ea@${EA_MAJOR}" -y
+expect "EA 已卸载" "已卸载"
+
+# current 切回 temurin (EA 已卸, junction 不能悬空)
+run "6k. use 切回 temurin@21" use temurin@21
+expect "切回 temurin" "已切换"
+
 # doctor 软检查: 关自举后 shell 集成/补全两项必 ✗ (预期内), 只验版本目录完整性。
 run "7. doctor (软检查)" doctor
 expect "doctor 版本目录完整性通过" "版本目录完整性"

@@ -24,6 +24,10 @@ func TestSplitDistro(t *testing.T) {
 		{"temurin-21.0.5+11", "temurin", "21.0.5+11"},
 		{"corretto-21.0.12.8.1", "corretto", "21.0.12.8.1"},
 		{"microsoft-21.0.12", "microsoft", "21.0.12"},
+		// 带连字符的多段 distro 名: 版本号以数字开头时贪心并入
+		{"temurin-ea-28+14-ea-beta", "temurin-ea", "28+14-ea-beta"},
+		{"graalvm-ce-25.3.4.1", "graalvm-ce", "25.3.4.1"},
+		{"temurin-ea-28", "temurin-ea", "28"},
 		// 旧的无前缀目录 / 纯版本号输入 → 默认 temurin
 		{"21.0.12+8", "temurin", "21.0.12+8"},
 		{"jdk-21.0.12+8", "jdk", "21.0.12+8"}, // jdk 前缀也被拆 (迁移期残留, MigrateLegacyDirs 会清)
@@ -34,6 +38,9 @@ func TestSplitDistro(t *testing.T) {
 		{"-21", "temurin", "-21"},           // 前缀为空 → 无 distro
 		{"123-21", "temurin", "123-21"},     // 前缀含数字 → 无 distro
 		{"temurin-", "temurin", "temurin-"}, // version 为空 → 无 distro
+		// 字母段后跟的不是数字 → 不并入 distro (版本号必以数字开头)
+		{"temurin-ea-beta", "temurin", "ea-beta"},
+		{"temurin-jdk8u504-b01", "temurin", "jdk8u504-b01"}, // 旧 JDK8 目录, 中段含数字不吸收
 	}
 	for _, tt := range tests {
 		d, v := SplitDistro(tt.in)
@@ -59,6 +66,7 @@ func TestMajorOf(t *testing.T) {
 		{"temurin-21.0.5+11", 21},
 		{"corretto-21.0.12.8.1", 21},
 		{"microsoft-17.0.20", 17},
+		{"temurin-ea-28+14-ea-beta", 28}, // 多段 distro 名 (EA 版本)
 
 		// 旧式 (JDK 8 及更早): jdk{N}u{update}-b{build}
 		{"jdk8u502-b07", 8},

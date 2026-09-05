@@ -399,10 +399,13 @@ func MigrateLegacyDirs() error {
 //   - 无 distro 前缀 (旧目录 "21.0.12+8" / "jdk-21.0.12+8" / 纯版本号输入) →
 //     distro 返回 app.DefaultDistro ("temurin"), version 返回原串。
 //
-// 注意: 只在第一个 "-" 处拆, 且要求 "-" 后紧跟数字 (否则视为无前缀)。
+// 拆分规则: 从左往右贪心吸收"全字母段", 直到某段后面跟的不是数字开头的内容。
+// 版本号必以数字开头, 故 "temurin-ea-28+14-ea-beta" 拆成 ("temurin-ea",
+// "28+14-ea-beta"), "graalvm-ce-25.3.4.1" 拆成 ("graalvm-ce", "25.3.4.1")
+// —— distro 名可以带 "-" (temurin-ea), 而版本号里的字母段 (ea-beta) 不会被
+// 误并入 distro (其后的段不以数字开头)。
 // 这样 "jdk-21.0.12+8" 的 "jdk" 不会被当成 distro ("jdk" 不是合法发行版,
-// 且其 "-" 后是 "21" 数字, 会被拆成 ("jdk", "21.0.12+8") —— 但调用方按
-// app.DefaultDistro 兜底, 不影响)。
+// 会被拆成 ("jdk", "21.0.12+8") —— 但调用方按 app.DefaultDistro 兜底, 不影响)。
 //
 // 纯函数, 便于表驱动测试。
 func SplitDistro(name string) (distro, version string) {
@@ -422,12 +425,41 @@ func SplitDistro(name string) (distro, version string) {
 	if prefix == "" || rest == "" {
 		return app.DefaultDistro, s
 	}
-	for _, r := range prefix {
+	if !isAllLetters(prefix) {
+		return app.DefaultDistro, s // 前缀含非字母, 视为无 distro
+	}
+	distro, version = prefix, rest
+	// 多段 distro 名 (如 temurin-ea): rest 又以 "全字母段-" 开头且其后跟数字
+	// (版本号必以数字开头) 时, 把该字母段并入 distro, 循环处理任意段数。
+	for {
+		d := strings.IndexByte(version, '-')
+		if d <= 0 {
+			break
+		}
+		seg, after := version[:d], version[d+1:]
+		if seg == "" || after == "" || !isAllLetters(seg) {
+			break
+		}
+		if after[0] < '0' || after[0] > '9' {
+			break
+		}
+		distro = distro + "-" + seg
+		version = after
+	}
+	return distro, version
+}
+
+// isAllLetters 判断 s 非空且全为 ASCII 字母。
+func isAllLetters(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
 		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
-			return app.DefaultDistro, s // 前缀含非字母, 视为无 distro
+			return false
 		}
 	}
-	return prefix, rest
+	return true
 }
 
 // MajorOf 从目录名 / 版本串里解析大版本号, 解析失败返回 0。

@@ -33,7 +33,10 @@ func TestPsCompletionScript(t *testing.T) {
 		{"含子命令 exec", "'exec'"},
 		{"含子命令 update", "'update'"},
 		{"含子命令 home", "'home'"},
+		{"含子命令 cache", "'cache'"},
 		{"update 参数补全分支", "-eq 'update'"},
+		{"cache 参数补全分支", "-eq 'cache'"},
+		{"最长前缀匹配 (temurin-ea 不被 temurin 抢)", "$prefix.Length -gt $best.Length"},
 	}
 	for _, c := range checks {
 		if !strings.Contains(script, c.want) {
@@ -66,7 +69,10 @@ func TestBashCompletionScript(t *testing.T) {
 		{"含子命令 outdated", " outdated "},
 		{"含子命令 exec", " exec "},
 		{"含子命令 home", " home "},
+		{"含子命令 cache", " cache "},
+		{"cache 参数分支", "cache)"},
 		{"use 分支", "use|pin|uninstall|rm)"},
+		{"最长前缀匹配 (temurin-ea 不被 temurin 抢)", "[ \"${#prefix}\" -gt \"${#best}\" ]"},
 	}
 	for _, c := range checks {
 		if !strings.Contains(script, c.want) {

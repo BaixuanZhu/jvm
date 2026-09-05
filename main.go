@@ -157,12 +157,14 @@ func usage() {
 
 发行版与版本号: [distro@]version
   省略 distro@ 默认 temurin。支持: temurin / corretto / microsoft / zulu / liberica / graalvm
+  另有早期访问变体 temurin-ea (尚未 GA 的预览版, 如 jvm install temurin-ea@28)
   版本号两种形式: 大版本号 (如 21) 取最新; 完整版本号精确匹配 (格式因发行版而异,
   运行 jvm available <distro> 查看实际格式)。
   示例:
     21                  temurin JDK 21 最新版
     corretto@21         corretto JDK 21 最新版
     microsoft@21        microsoft JDK 21 最新版
+    temurin-ea@28       temurin 28 早期访问版 (EA)
     corretto@21.0.12.8.1  corretto 指定版本 (完整版本号)
 
 命令:

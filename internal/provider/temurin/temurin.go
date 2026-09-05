@@ -4,6 +4,9 @@
 // 消化 "查询大版本/最新 GA/精确版本/release_name 解析/镜像 URL 拼接/
 // CDN 直链解析" 等 Temurin 专属细节。上层 (cmd/jdk) 只认 provider.Provider。
 //
+// 本包注册两个 provider: GA 的 "temurin" 与早期访问变体 "temurin-ea"
+// (见 ea.go, 复用请求 plumbing, 端点走 feature_releases/{ver}/ea, 无镜像)。
+//
 // API 文档: https://api.adoptium.net/
 // 元数据走官方 API (轻量 JSON, 几 KB); 大文件下载走镜像/CDN, 由 jdk 包处理。
 package temurin

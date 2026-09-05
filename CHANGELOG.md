@@ -9,6 +9,12 @@
 
 ### 新增
 
+- 新发行版 `temurin-ea`（Temurin 早期访问版）：跟踪尚未 GA 的大版本预览构建
+  （如 `jvm install temurin-ea@28` / `jvm available temurin-ea`），EA 大版本
+  列表实时从 Adoptium API 归并（随上游滚动，无需升级 jvm）。版本形如
+  `28+14-ea-beta`，`outdated` / `update` 对 EA 组照常工作（build 级升级）。
+  清华镜像不同步 EA 构建，下载直连 GitHub release 资产。
+
 - 新发行版 `graalvm`（Oracle GraalVM，CPU LTS 线 21/25）：`jvm install
   graalvm@21` / `jvm available graalvm`。直连 Oracle 官方 CDN（国内可直连，
   无镜像），SHA256 走官方 `.sha256` 旁路校验；版本号形如 `21.0.12`。

@@ -38,7 +38,10 @@ const completionEndMarker = "# <<< jvm completion <<<"
 // distro 列表变化) 时同步递增此 token。
 // v2: 子命令列表补 cache 及其 clean 参数补全。
 // v3: 发行版列表新增 graalvm。
-const completionVersionToken = "# jvm-completion: v3"
+// v4: 发行版列表新增 temurin-ea; 本地版本目录反转改最长前缀匹配
+//
+//	(temurin-ea-* 不再被短名 temurin 抢匹配)。
+const completionVersionToken = "# jvm-completion: v4"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。
@@ -66,22 +69,23 @@ $_jvmDistros = ` + arr + `
 
 # Convert local version dir name (distro-version or bare version) to distro@version.
 # Bare dirs (no distro prefix) are treated as temurin.
+# Longest-prefix match: temurin-ea-* must not be captured by the shorter "temurin".
 function _jvmLocalVersions {
     $dir = Join-Path $env:USERPROFILE '.jvm\versions'
     if (-not (Test-Path $dir)) { return @() }
     $out = @()
     foreach ($d in (Get-ChildItem -Directory -Path $dir -ErrorAction SilentlyContinue)) {
         $name = $d.Name
-        $matched = $false
+        $best = ''
         foreach ($distro in $_jvmDistros) {
             $prefix = $distro + '-'
-            if ($name.StartsWith($prefix)) {
-                $out += ($distro + '@' + $name.Substring($prefix.Length))
-                $matched = $true
-                break
-            }
+            if ($name.StartsWith($prefix) -and $prefix.Length -gt $best.Length) { $best = $prefix }
         }
-        if (-not $matched) { $out += ('temurin@' + $name) }
+        if ($best -ne '') {
+            $out += ($best.Substring(0, $best.Length - 1) + '@' + $name.Substring($best.Length))
+        } else {
+            $out += ('temurin@' + $name)
+        }
     }
     return $out
 }
@@ -139,24 +143,26 @@ _jvm_commands="install use pin list ls available outdated update uninstall rm cu
 
 # Convert local version dir name (distro-version or bare version) to distro@version.
 # Bare dirs (no distro prefix) are treated as temurin.
+# Longest-prefix match: temurin-ea-* must not be captured by the shorter "temurin".
 _jvm_local_versions() {
     local dir="$HOME/.jvm/versions"
     [ -d "$dir" ] || return 0
-    local name distro ver prefix matched
+    local name distro prefix best
     for name in "$dir"/*/; do
         [ -d "$name" ] || continue        # skip literal if glob unmatched
         name="${name%/}"; name="${name##*/}"
-        matched=0
+        best=""
         for distro in $_jvm_distros; do
             prefix="${distro}-"
-            if [ "${name#"$prefix"}" != "$name" ]; then
-                ver="${name#"$prefix"}"
-                echo "${distro}@${ver}"
-                matched=1
-                break
+            if [ "${name#"$prefix"}" != "$name" ] && [ "${#prefix}" -gt "${#best}" ]; then
+                best="$prefix"
             fi
         done
-        [ "$matched" -eq 0 ] && echo "temurin@${name}"
+        if [ -n "$best" ]; then
+            echo "${best%-}@${name#"$best"}"
+        else
+            echo "temurin@${name}"
+        fi
     done
 }
 
