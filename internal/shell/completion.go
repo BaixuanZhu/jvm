@@ -37,7 +37,8 @@ const completionEndMarker = "# <<< jvm completion <<<"
 // 判断, 内容变更后老 profile 永不更新)。改补全脚本内容 (含新增发行版导致的
 // distro 列表变化) 时同步递增此 token。
 // v2: 子命令列表补 cache 及其 clean 参数补全。
-const completionVersionToken = "# jvm-completion: v2"
+// v3: 发行版列表新增 graalvm。
+const completionVersionToken = "# jvm-completion: v3"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。

@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。命令面：install（远程安装；双参数 `jvm install <distro@版本> <zip文件>` 从本地包安装，内网/手动下载场景，不查网络不做远程校验）/ use（无参读 `.jvmrc`，集成钩子下 cd 自动切换）/ pin / uninstall / list / available / outdated（patch 升级检查）/ update（大版本 patch 一键升级：装新 → 条件切换 → 清理旧版，仅接受大版本号；`upgrade` 只管 jvm 自身更新，语义分离）/ current / home（打印当前 JAVA_HOME 路径）/ exec（指定版本一次性执行，不动全局）/ doctor（`--fix` 自动修复）/ init / completion / cache（下载缓存查看/清理，安装包 zip 留存 `{dataRoot}/cache`，卸载重装免重新下载）/ upgrade。**仅支持 Windows（x64 / ARM64）**。
+`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica / GraalVM），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。命令面：install（远程安装；双参数 `jvm install <distro@版本> <zip文件>` 从本地包安装，内网/手动下载场景，不查网络不做远程校验）/ use（无参读 `.jvmrc`，集成钩子下 cd 自动切换）/ pin / uninstall / list / available / outdated（patch 升级检查）/ update（大版本 patch 一键升级：装新 → 条件切换 → 清理旧版，仅接受大版本号；`upgrade` 只管 jvm 自身更新，语义分离）/ current / home（打印当前 JAVA_HOME 路径）/ exec（指定版本一次性执行，不动全局）/ doctor（`--fix` 自动修复）/ init / completion / cache（下载缓存查看/清理，安装包 zip 留存 `{dataRoot}/cache`，卸载重装免重新下载）/ upgrade。**仅支持 Windows（x64 / ARM64）**。
 
 ## Setup commands
 
@@ -46,6 +46,7 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 - `internal/provider/microsoft/` — Microsoft Build of OpenJDK 适配器：aka.ms 短链重定向探测 + `.sha256sum.txt` 旁路校验，仅 LTS（11/17/21/25），直连 VisualStudio CDN（无镜像）。x64 / aarch64 均支持（短链文件名后缀参数化）。
 - `internal/provider/zulu/` — Azul Zulu 适配器：Azul Metadata API 两步查询（列表端点拿直链 + `package_uuid`，详情端点拿 `sha256_hash`），按文件名 `-ca-jdk` 过滤纯 JDK 变体（排除 fx/crac），直连 cdn.azul.com（无镜像）。x64 / aarch64 均支持（API `arch=arm64`，文件名 `win_aarch64`）。
 - `internal/provider/liberica/` — BellSoft Liberica 适配器：BellSoft Product Discovery API 一次拉该架构全量 JDK zip（API 无 feature 过滤，客户端按 `latestInFeatureVersion`/`featureVersion` 过滤），**官方仅提供 sha1**（无 sha256）故用 SHA1 做完整性校验（`Asset.ChecksumAlgo="sha1"`），下载直链自拼 `download.bell-sw.com` 官方 CDN（替代 API 返回的 GitHub 域）。x64 / aarch64 均支持（API `arch=arm&bitness=64`）。
+- `internal/provider/graalvm/` — Oracle GraalVM 适配器：**Oracle CDN 无元数据 API**，仅覆盖 CPU LTS 线（21/25，写死 `cpuReleases`）；版本枚举靠 archive 直链 HEAD 顺序探测（补丁号连续递增，起点表 `floors`={21:8, 25:1}，Oracle 跳号时 scanLatest 报错需维护），直链 `download.oracle.com/graalvm/{maj}/archive/graalvm-jdk-{ver}_windows-x64_bin.zip` + `.sha256` 旁路（裸 hex）。`ListVersions` 只回最新一条（archive 无目录列表，microsoft 先例）。**官方无 Windows ARM64 构建**：`arch=aarch64` 时各入口统一报错（corretto 同款守卫）。创新线（25iN/gds.oracle.com）不在范围。
 - `internal/jdk/` — 下载、完整性校验（SHA256/SHA1，按 provider 提供）、解压、原子替换到数据面 `versions/`（发行版无关，只认 `*app.Asset`）。**下载缓存**：安装包 zip 以 `{finalName}.zip` 留存 `{dataRoot}/cache`（命中条件 `cacheHit` = 存在非空 + 校验和匹配），下载直接落缓存路径（`.part`→rename 原子性天然防半截文件），内容可疑（读 zip/校验失败）删缓存自愈、解压失败保留（内容是好的）；无缓存淘汰策略，`jvm cache clean` 手动清。**本地包安装** `InstallLocal`（`jvm install <distro@版本> <zip>`）：不查网络、不做远程校验和校验、失败不删用户源文件，目录命名与远程安装一致（解压落位共用 `extractAndPlace`）。
 - `internal/junction/` — Windows junction 创建/删除/解析，用**原生 syscall**（`FSCTL_SET_REPARSE_POINT`），不调 `cmd.exe`（避免注入面）。
 - `internal/env/` — 注册表读写（`HKCU\Environment`）+ 广播 `WM_SETTINGCHANGE`，持久化 `JAVA_HOME`/PATH/`jvm` 自身 PATH；`RemoveFromUserPath` 供 doctor --fix 清理旧 JDK 残留条目（大小写不敏感、`filepath.Clean` 后匹配，纯逻辑在 `filterUserPath` 供表测）。
@@ -77,7 +78,7 @@ CI（`.github/workflows/ci.yml`）：push 到 main / PR 每次跑单元测试（
 - junction 创建走原生 syscall，**无 shell 子进程**，杜绝命令注入。
 - 自更新（`jvm upgrade`）从 GitHub Release 拉取，靠精确 asset 名匹配（`expectedAssetName`），替换自身前校验。
 - 注册表只写 `HKCU`（用户级），无需管理员；不写 `HKLM`。
-- 无密钥/凭证处理；网络仅连 Adoptium API、corretto-downloads 仓库、aka.ms/VisualStudio CDN、Azul Metadata API/cdn.azul.com、BellSoft API/download.bell-sw.com、清华镜像、GitHub API/CDN。
+- 无密钥/凭证处理；网络仅连 Adoptium API、corretto-downloads 仓库、aka.ms/VisualStudio CDN、Azul Metadata API/cdn.azul.com、BellSoft API/download.bell-sw.com、Oracle GraalVM CDN（download.oracle.com）、清华镜像、GitHub API/CDN。
 
 ## Known gotchas
 

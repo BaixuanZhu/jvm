@@ -125,8 +125,8 @@ expect "java -version 实跑成功" "version"
 run "5a. home: 输出 JAVA_HOME 路径" home
 expect "home 指向 current" "current"
 
-# 覆盖全部 5 个 provider 的下载 + 校验路径:
-#   corretto/microsoft/zulu 走 SHA256, liberica 走 SHA1 (多算法校验真实用例)。
+# 覆盖全部 6 个 provider 的下载 + 校验路径:
+#   corretto/microsoft/zulu/graalvm 走 SHA256, liberica 走 SHA1 (多算法校验真实用例)。
 run "6a. install corretto@21 (SHA256, CloudFront)" install corretto@21
 expect "corretto 安装完成" "安装完成"
 run "6b. install microsoft@21 (SHA256, aka.ms 旁路)" install microsoft@21
@@ -135,6 +135,12 @@ run "6c. install zulu@21 (SHA256, Azul 详情端点)" install zulu@21
 expect "zulu 安装完成" "安装完成"
 run "6d. install liberica@21 (SHA1, BellSoft)" install liberica@21
 expect "liberica 安装完成" "安装完成"
+# GraalVM: Oracle CDN 无 API, HEAD 顺序探测最新 patch + .sha256 旁路校验。
+run "6e. install graalvm@21 (SHA256, Oracle CDN 探测)" install graalvm@21
+expect "graalvm 安装完成" "安装完成"
+
+run "6f. available graalvm: 大版本列表" available graalvm
+expect "graalvm 大版本表" "可安装的大版本"
 
 # doctor 软检查: 关自举后 shell 集成/补全两项必 ✗ (预期内), 只验版本目录完整性。
 run "7. doctor (软检查)" doctor
@@ -374,6 +380,19 @@ expect "提示未安装" "没有安装"
 
 run_fail "38. uninstall 不存在的版本" uninstall temurin@99 -y
 expect "提示未找到" "没有"
+
+# GraalVM 官方无 Windows ARM64 构建: aarch64 下各入口统一拦截 (corretto 同款守卫)。
+echo "### 38a. graalvm 在 aarch64 下被拦截 ###"
+rc=0
+LAST_OUT="$(JVM_ARCH=aarch64 "$JVM" install graalvm@21 2>&1)" || rc=$?
+if [ "$rc" -eq 0 ]; then
+    echo "  ✗ 预期失败 (graalvm 无 Windows ARM64 构建)" >&2
+    printf '%s\n' "$LAST_OUT" | sed 's/^/      /' >&2
+    exit 1
+fi
+echo "  ✓ 如期失败 (退出 $rc)"
+printf '%s' "$LAST_OUT" | grep -q "ARM64" && echo "  ✓ 提示 ARM64 不可用" || {
+    echo "  ✗ 错误消息应说明 ARM64 不可用" >&2; exit 1; }
 
 echo ""
 echo "--- 自更新 (jvm upgrade: 检查 GitHub Release) ---"

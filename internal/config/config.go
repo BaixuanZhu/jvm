@@ -54,7 +54,7 @@ func Default() Config {
 
 // defaultArch 返回当前二进制对应的默认 JDK 目标架构:
 // ARM64 版 jvm 默认下载 ARM64 (aarch64) JDK, 其余 (amd64) 默认 x64。
-// 注意: 五个 provider (temurin/corretto/microsoft/zulu/liberica) 均消费该 arch 值。
+// 注意: 六个 provider (temurin/corretto/microsoft/zulu/liberica/graalvm) 均消费该 arch 值。
 func defaultArch() string {
 	if runtime.GOARCH == "arm64" {
 		return "aarch64"

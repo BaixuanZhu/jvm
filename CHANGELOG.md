@@ -9,6 +9,12 @@
 
 ### 新增
 
+- 新发行版 `graalvm`（Oracle GraalVM，CPU LTS 线 21/25）：`jvm install
+  graalvm@21` / `jvm available graalvm`。直连 Oracle 官方 CDN（国内可直连，
+  无镜像），SHA256 走官方 `.sha256` 旁路校验；版本号形如 `21.0.12`。
+  官方无 Windows ARM64 构建，`arch=aarch64` 下会明确提示并建议改用
+  temurin/microsoft。GraalVM 创新线（25iN）与 CE 不在本版范围。
+
 - 本地 zip 包安装：`jvm install <distro@版本> <zip文件路径>`（如
   `jvm install temurin@21.0.5+11 D:\downloads\jdk.zip`），适合内网/代理环境
   手动下载后纳管。不访问网络、不做远程校验和校验（本地文件由用户负责），
