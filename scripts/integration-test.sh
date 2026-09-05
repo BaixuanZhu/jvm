@@ -245,6 +245,13 @@ echo "  ✓ 旧目录已清理"
 run "15f. update 幂等: 已是最新" update 21 -y
 expect "提示已是最新" "已是最新"
 
+# --- jvm update --all: 批量升级闭环 ---
+# 15c/15f 后 temurin@21 已是最新 (其他组是否落后取决于当时上游, 不硬造),
+# 这里覆盖: 参数解析不误拒 + 无落后组时的幂等汇总出口; 有落后组时与单组共用
+# 同一 execUpdatePlan 闭环 (15c 已验证), 不重复下载验证。
+run "15f2. update --all 幂等: 无落后组" update --all -y
+expect "update --all 汇总" "均为最新"
+
 # --- 下载缓存: 卸载重装免重新下载 ---
 # 15a 装过的 temurin-21.0.2+13 已被 update 清掉, 但缓存 zip 仍留存:
 # 重装同版本应命中缓存 (零下载), 再验证 cache 列表与 clean 闭环。

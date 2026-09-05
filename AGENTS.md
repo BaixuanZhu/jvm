@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica / GraalVM；另有早期访问变体 `temurin-ea`，尚未 GA 的预览版），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。命令面：install（远程安装；双参数 `jvm install <distro@版本> <zip文件>` 从本地包安装，内网/手动下载场景，不查网络不做远程校验）/ use（无参读 `.jvmrc`，集成钩子下 cd 自动切换）/ pin / uninstall / list / available / outdated（patch 升级检查）/ update（大版本 patch 一键升级：装新 → 条件切换 → 清理旧版，仅接受大版本号；`upgrade` 只管 jvm 自身更新，语义分离）/ current / home（打印当前 JAVA_HOME 路径）/ exec（指定版本一次性执行，不动全局）/ doctor（`--fix` 自动修复）/ init / completion / cache（下载缓存查看/清理，安装包 zip 留存 `{dataRoot}/cache`，卸载重装免重新下载）/ upgrade。**仅支持 Windows（x64 / ARM64）**。
+`jvm` 是 Windows 上的 Java 版本管理器（类似 nvm-windows / jabba）。Go 编写的单二进制 CLI；通过 Windows junction 切换 JDK 版本，免管理员权限，自动配置 PATH/JAVA_HOME 与 shell 集成。支持多发行版（Temurin / Corretto / Microsoft Build of OpenJDK / Azul Zulu / BellSoft Liberica / GraalVM；另有早期访问变体 `temurin-ea`，尚未 GA 的预览版），CLI 用 `[distro@]version` 语法选择发行版（省略前缀默认 temurin）。命令面：install（远程安装；双参数 `jvm install <distro@版本> <zip文件>` 从本地包安装，内网/手动下载场景，不查网络不做远程校验）/ use（无参读 `.jvmrc`，集成钩子下 cd 自动切换）/ pin / uninstall / list / available / outdated（patch 升级检查）/ update（大版本 patch 一键升级：装新 → 条件切换 → 清理旧版，仅接受大版本号；`update --all` 批量升级全部落后组，一次确认、某组失败不阻断其余；单组与 --all 共用 `buildUpdatePlan`/`printUpdatePlan`/`execUpdatePlan` 三段闭环；`upgrade` 只管 jvm 自身更新，语义分离）/ current / home（打印当前 JAVA_HOME 路径）/ exec（指定版本一次性执行，不动全局）/ doctor（`--fix` 自动修复）/ init / completion / cache（下载缓存查看/清理，安装包 zip 留存 `{dataRoot}/cache`，卸载重装免重新下载）/ upgrade。**仅支持 Windows（x64 / ARM64）**。
 
 ## Setup commands
 

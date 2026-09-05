@@ -48,7 +48,9 @@ const completionEndMarker = "# <<< jvm completion <<<"
 // v5: 补全覆盖扩展: exec 版本参数 (-- 前) / available 与 doctor 选项 /
 //
 //	init 与 completion 参数; install 限版本槽, zip 路径槽让给默认文件补全。
-const completionVersionToken = "# jvm-completion: v5"
+//
+// v6: update 参数补全加 --all/-a 选项。
+const completionVersionToken = "# jvm-completion: v6"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。
@@ -139,11 +141,13 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
             }
         }
     } elseif ($cmd -eq 'update') {
-        # update only accepts major versions: trim local versions to distro@major, dedup
+        # update accepts --all or major versions: trim local versions to distro@major, dedup
+        $cands = @('--all','-a')
         _jvmLocalVersions | ForEach-Object {
             $p = $_.Split('@', 2)
             $p[0] + '@' + $p[1].Split('.')[0]
-        } | Sort-Object -Unique | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        } | Sort-Object -Unique | ForEach-Object { $cands += $_ }
+        $cands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     } elseif ($cmd -eq 'cache') {
@@ -252,8 +256,8 @@ _jvm() {
             COMPREPLY=($(compgen -W "$(_jvm_local_versions)" -- "$cur"))
             ;;
         update)
-            # update only accepts major versions: trim local versions to distro@major, dedup
-            local v d m majors=""
+            # update accepts --all or major versions: trim local versions to distro@major, dedup
+            local v d m majors="--all -a"
             for v in $(_jvm_local_versions); do
                 d="${v%%@*}"; v="${v#*@}"
                 v="${d}@${v%%.*}"
