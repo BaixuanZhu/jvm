@@ -11,21 +11,32 @@ description: jvm 使用中的常见问题与解答。
 
 CMD **不支持** shell 自动集成（doskey 体验差）。jvm 本身在 CMD 里可用，但 `jvm use` 后当前 CMD 窗口的 `java` 不会立刻变——新开窗口即可。推荐用 PowerShell 或 Git Bash。
 
+## 已装的 JDK 怎么升级？
+
+```powershell
+jvm outdated          # 先看哪些版本有新 patch
+jvm update 21         # 升级 temurin 21：装最新 patch → 自动切换 → 清理旧目录
+jvm update --all      # 或者一次升级全部落后的 (发行版, 大版本) 组
+```
+
+正在使用该组版本时升级会自动切换到新版；被进程占用删不掉的旧目录会跳过并提示稍后手动 `uninstall`。
+
 ## `jvm use` 后 java 没变？
 
 1. 确认你重开过至少一次终端（让 PATH 和 shell 集成生效）
-2. 跑 `jvm doctor` 做 10 项诊断，或直接 `jvm doctor --fix` 自动修复
+2. 跑 `jvm doctor` 做 14 项诊断，或直接 `jvm doctor --fix` 自动修复
 3. 确认使用的是 PowerShell 或 bash（CMD 见上一条）
 
 ## 国内下载慢 / 失败？
 
 - Temurin 默认走清华镜像，失败会自动回退官方 CDN
-- 下载支持断点续传（3 次指数退避重试 + HTTP Range），中断后重跑 `jvm install` 会接着下
+- 下载支持断点续传（3 次指数退避重试 + HTTP Range），中断后重跑 `jvm install` 会接着下；连接停滞（对端不再传数据）30 秒自动中断重试，不会无限挂起
+- 内网 / 代理环境可用本地包安装：`jvm install temurin@21.0.5+11 D:\jdk.zip`（手动下载后纳管，零网络）
 - 安装脚本本身拉不动 GitHub 时，设置 `$env:JVM_INSTALLER_MIRROR` 指向镜像前缀，或改用安装包 / 便携版
 
 ## 和 nvm-windows / jabba 有什么区别？
 
-定位类似，jvm 的差异点：多发行版支持（`distro@` 语法）、当前终端即时生效、免管理员、国内镜像加速、项目级 `.jvmrc` 固定与自动切换、`jvm exec` 不动全局的一次性执行、`jvm outdated` 升级检查、`jvm doctor` 环境诊断与一键修复、Tab 智能补全。
+定位类似，jvm 的差异点：多发行版支持（`distro@` 语法）、当前终端即时生效、免管理员、国内镜像加速、项目级 `.jvmrc` 固定与自动切换、`jvm exec` 不动全局的一次性执行、`jvm outdated` / `jvm update` 升级检查与 patch 一键升级、`jvm doctor` 环境诊断与一键修复、下载缓存与本地包安装、Tab 智能补全。
 
 ## 不想让 cd 自动切版本，怎么关？
 

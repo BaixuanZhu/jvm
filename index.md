@@ -68,7 +68,17 @@ title: 首页
       <div class="feature-card fade-in">
         <div class="icon">🌐</div>
         <h3>多发行版</h3>
-        <p>Temurin / Corretto / Microsoft / Zulu / Liberica，<code>distro@version</code> 语法随心选。</p>
+        <p>Temurin / Corretto / Microsoft / Zulu / Liberica / GraalVM，<code>distro@version</code> 语法随心选。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="icon">⬆️</div>
+        <h3>Patch 一键升级</h3>
+        <p><code>jvm update 21</code> 装最新 patch、自动切换、清理旧版一条龙；<code>update --all</code> 批量升完全部落后组。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="icon">💾</div>
+        <h3>缓存与离线</h3>
+        <p>安装包缓存重装免重下，<code>available</code> 结果 10 分钟缓存提速；内网环境还能装本地 zip 包。</p>
       </div>
       <div class="feature-card fade-in">
         <div class="icon">📄</div>
@@ -97,7 +107,7 @@ title: 首页
 <!-- ================= 发行版 ================= -->
 <section class="section section-alt">
   <div class="container">
-    <h2 class="section-title fade-in">五大发行版，一个命令</h2>
+    <h2 class="section-title fade-in">七大发行版，一个命令</h2>
     <p class="section-sub fade-in">省略前缀默认 Temurin，精确到小版本也没问题。</p>
 
     <div class="distro-grid">
@@ -126,10 +136,20 @@ title: 首页
         <p class="vendor">BellSoft · 全架构 · 仅 LTS</p>
         <code>jvm install liberica@21</code>
       </div>
+      <div class="distro-card fade-in">
+        <h3>GraalVM</h3>
+        <p class="vendor">Oracle · CPU LTS 线（21/25）· 官方 CDN</p>
+        <code>jvm install graalvm@21</code>
+      </div>
+      <div class="distro-card fade-in">
+        <h3>Temurin EA</h3>
+        <p class="vendor">Adoptium 早期访问版 · GA 前预览</p>
+        <code>jvm install temurin-ea@28</code>
+      </div>
     </div>
 
-    <p class="distro-note fade-in">精确版本同样支持：<code>jvm install 21.0.12+8</code><br>
-    ARM64 设备自动下载 ARM64 版 JDK（Temurin / Microsoft / Zulu / Liberica；Corretto 官方暂无 Windows ARM64 构建）。</p>
+    <p class="distro-note fade-in">精确版本同样支持：<code>jvm install 21.0.12+8</code>；内网环境可装本地 zip：<code>jvm install temurin@21.0.5+11 D:\jdk.zip</code><br>
+    ARM64 设备自动下载 ARM64 版 JDK（Temurin / Microsoft / Zulu / Liberica；Corretto 与 GraalVM 官方暂无 Windows ARM64 构建）。</p>
   </div>
 </section>
 

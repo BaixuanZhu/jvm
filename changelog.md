@@ -4,6 +4,38 @@ description: jvm 各版本变更记录。
 layout: docs
 ---
 
+## [0.14.0] - 2026-09-05
+
+### 修复
+- **下载停滞看门狗**：修复 JDK 下载在连接停滞（对端不断开但不再传数据）时无限挂起——距最后一次收到数据超 30 秒即中断本次尝试并自动重试（断点续传，已下载部分不丢），重试时显式打印提示。
+
+### 新增
+- **`jvm doctor` 3 项新检查（11 → 14 项）**：配置文件语法（config.toml 坏语法显式报 ✗）/ `.tmp-extract-*` 解压半成品残留（`--fix` 自动清理）/ 下载缓存占用汇报（附 `jvm cache clean` 释放提示）。
+- **`jvm available` 查询结果本地缓存**（10 分钟有效）：二次查询不再实时打全部发行版 API，大幅提速；分组形态按 `distro@major` 增量复用；`-r` / `--refresh` 强制绕过缓存直查。
+- **`jvm update --all`**：一条命令升级全部落后的（发行版, 大版本）组——与 `outdated` 同源检查，汇总计划后一次确认，某组失败不阻断其余，末尾给出汇总（有失败时非零退出）。
+- **Tab 补全覆盖扩展**：`exec` 补本地已装版本（仅 `--` 之前的版本槽）、`available` 补 `-a` / `-m` 选项、`doctor` 补 `--fix` / `-y`、`init` / `completion` 补 `powershell` / `bash` 参数。
+
+## [0.13.0] - 2026-09-05
+
+### 新增
+- **新发行版 `temurin-ea`（Temurin 早期访问版）**：跟踪尚未 GA 的大版本预览构建（如 `jvm install temurin-ea@28`），EA 大版本列表实时从 Adoptium API 归并、随上游滚动；下载直连 GitHub release 资产（镜像不同步 EA 构建）。
+- **新发行版 `graalvm`（Oracle GraalVM，CPU LTS 线 21/25）**：`jvm install graalvm@21`；直连 Oracle 官方 CDN，SHA256 走官方 `.sha256` 旁路校验；官方无 Windows ARM64 构建，`arch=aarch64` 下会明确提示并建议改用 temurin / microsoft。
+- **本地 zip 包安装**：`jvm install <distro@版本> <zip文件路径>`——内网/代理环境手动下载后纳管，不访问网络、不做远程校验，安装后目录命名与远程安装一致，各命令照常工作。
+- **下载缓存**：安装包 zip 以 `{distro}-{版本}.zip` 留存 `~/.jvm/cache/`，卸载后重装同版本直接复用（命中前先校验完整性，损坏自动删除重下）；新命令 `jvm cache` 查看条目与占用、`jvm cache clean` 清空。
+- **配置 `install_dir` 键**（环境变量 `JVM_INSTALL_DIR` 同效）：把 JDK 数据目录（`versions/`）重定向到其他盘；控制面（config.toml、current junction、注册表）留在 `~/.jvm` 不动。
+
+## [0.12.0] - 2026-09-05
+
+### 新增
+- **`jvm update <[distro@]大版本> [-y]`**：patch 升级一步到位——安装该大版本最新 patch →（正在使用该组版本时）自动切换 current → 清理组内全部旧 patch 目录（被占用的跳过并提示）。`jvm upgrade` 仍只负责 jvm 自身更新，两者语义分离。
+- **`jvm home`**：打印当前 JAVA_HOME 路径（单行无装饰），供 CI 脚本 / IDE 配置直接引用。
+
+### 修复
+- Tab 补全的子命令列表补齐 `outdated` / `exec`（引入补全时即遗漏），并新增 `update` / `home` 补全；`jvm update <TAB>` 补本地已装版本的 `distro@大版本` 形式。
+
+### 变更
+- 补全块引入版本 token 并纳入启动自举的版本化重写：补全内容变更后老用户下次运行 jvm 自动刷新 profile，无需手动 `jvm completion --install`。
+
 ## [0.11.0] - 2026-08-16
 
 ### 新增

@@ -7,12 +7,14 @@ description: jvm 的配置文件、目录结构与切换原理。
 
 ```
 ~/.jvm/
-  versions/
-    temurin-21.0.12+8/  ← 解压后的 JDK（{distro}-{版本} 命名）
+  versions/               ← 解压后的 JDK（{distro}-{版本} 命名；可用 install_dir 重定向）
+    temurin-21.0.12+8/
     corretto-21.0.12.8.1/
-  current/              ← junction，指向当前选中的版本
+  cache/                  ← 安装包 zip 缓存（重装免重下；jvm cache clean 清空）
+  current/                ← junction，指向当前选中的版本
     bin/java.exe ...
-  auto-state            ← .jvmrc 自动切换前的手动版本记录（可选存在）
+  config.toml             ← 用户配置（可选，默认不存在）
+  auto-state              ← .jvmrc 自动切换前的手动版本记录（可选存在）
 ```
 
 - **PATH** 永远指向 `~/.jvm/current/bin`（只配置一次）
@@ -47,6 +49,11 @@ arch = "aarch64"
 
 # .jvmrc 目录自动切换（默认 true，关掉后 cd 不再自动切换）。
 autoswitch = false
+
+# JDK 数据目录重定向（默认空 = ~/.jvm）。把 versions/ 与 cache/ 挪到其他盘，
+# 适合 C 盘空间紧张的场景；控制面（本文件、current junction、注册表 PATH）
+# 留在 ~/.jvm 不动。已装版本需手动搬到新目录，doctor 检测到旧目录有版本会提示。
+install_dir = "D:\\jdks"
 ```
 
 各发行版的 Windows ARM64 构建支持：
@@ -54,17 +61,20 @@ autoswitch = false
 | 发行版 | Windows ARM64 | 说明 |
 |--------|---------------|------|
 | Temurin | ⚠️ 部分版本 | Adoptium 官方覆盖不全（如 21 有、17/25 暂无），以实际查询为准 |
+| Temurin EA | ⚠️ 同 Temurin | 早期访问版走同一 Adoptium API，覆盖随上游滚动 |
 | Microsoft | ✅ 全部 LTS | 11 / 17 / 21 / 25 均有 ARM64 构建 |
 | Zulu | ✅ LTS | 11 / 17 / 21 / 25 均有 ARM64 构建 |
 | Liberica | ✅ 全部 LTS | 全架构覆盖 |
 | Corretto | ❌ 没有 | 官方未发布；`arch=aarch64` 时会明确报错并建议改用 Temurin / Microsoft / Zulu / Liberica |
+| GraalVM | ❌ 没有 | Oracle 官方无 Windows ARM64 构建；会明确报错并建议改用 Temurin / Microsoft |
 
 也可用环境变量临时覆盖（优先级高于配置文件）：
 
 ```powershell
 $env:JVM_MIRROR = "https://your.mirror/Adoptium"
 $env:JVM_ARCH = "aarch64"
-$env:JVM_AUTOSWITCH = "0"     # 临时关闭 .jvmrc 自动切换
+$env:JVM_AUTOSWITCH = "0"       # 临时关闭 .jvmrc 自动切换
+$env:JVM_INSTALL_DIR = "D:\jdks"
 jvm install 21
 ```
 
@@ -81,3 +91,6 @@ jvm install 21
 | PATH 持久化 | 注册表 `HKCU\Environment` + 广播 `WM_SETTINGCHANGE` | 不用 setx（会截断长 PATH） |
 | 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退 | 国内快，且官方兜底 |
 | 安全校验 | 下载强制按官方哈希校验（SHA256 / SHA1） | 损坏/篡改即报错中止 |
+| 下载稳健性 | 断点续传 + 读停滞看门狗（30 秒无数据自动中断重试） | 半死连接不会无限挂起 |
+| JDK 存储 | `~/.jvm`（数据面可经 `install_dir` 重定向到其他盘） | 控制面与数据面分离，重定向不动注册表 |
+| 安装包缓存 | zip 留存 `cache/`，命中校验后复用 | 卸载重装免重新下载 |

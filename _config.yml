@@ -4,7 +4,7 @@
 title: Java Version Manager
 description: >-
   jvm 是 Windows 上的 Java 版本管理器，类似 nvm-windows / jabba。
-  支持 Temurin / Corretto / Microsoft / Zulu / Liberica 五大 OpenJDK 发行版，
+  支持 Temurin / Corretto / Microsoft / Zulu / Liberica / GraalVM 等七大发行版，
   一键安装、秒级切换、免管理员权限。
 lang: zh-CN
 
