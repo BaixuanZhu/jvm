@@ -9,6 +9,11 @@
 
 ### 新增
 
+- 下载缓存：安装包 zip 以 `{distro}-{版本}.zip` 留存 `~/.jvm/cache/`（随
+  `install_dir` 走），卸载后重装同版本直接复用、不再重新下载（命中前先校验
+  完整性，损坏/篡改自动删除重新下载）。新命令 `jvm cache` 查看缓存条目与
+  占用，`jvm cache clean` 清空（含中断残留的 `.zip.part`）。
+
 - 配置文件新增 `install_dir` 键（环境变量 `JVM_INSTALL_DIR` 同效）：把 JDK 安装
   数据目录（`versions/`）重定向到其他盘（如 `D:\jdks`），适合 C 盘空间紧张的
   场景。控制面（`config.toml`、`current` junction、注册表 PATH/JAVA_HOME）

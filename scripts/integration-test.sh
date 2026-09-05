@@ -217,6 +217,24 @@ echo "  ✓ 旧目录已清理"
 run "15f. update 幂等: 已是最新" update 21 -y
 expect "提示已是最新" "已是最新"
 
+# --- 下载缓存: 卸载重装免重新下载 ---
+# 15a 装过的 temurin-21.0.2+13 已被 update 清掉, 但缓存 zip 仍留存:
+# 重装同版本应命中缓存 (零下载), 再验证 cache 列表与 clean 闭环。
+run "15g. install temurin@21.0.2+13 重装 (命中缓存)" install temurin@21.0.2+13
+expect "提示命中下载缓存" "命中下载缓存"
+
+run "15h. cache 列表含旧 patch zip" cache
+expect "列表非空" "temurin-21.0.2+13.zip"
+
+run "15i. uninstall 临时版本" uninstall temurin@21.0.2+13 -y
+expect "已卸载" "已卸载"
+
+run "15j. cache clean 清空" cache clean
+expect "clean 释放提示" "已清理"
+
+run "15k. cache 列表为空" cache
+expect "空缓存提示" "空。"
+
 # --- jvm use --auto: .jvmrc 自动切换状态机 ---
 # 前置: current 为 temurin@21 (步骤 4 切的, 后续 install 不切)。
 # 注意 NO_RC 须选一条向上都无 .jvmrc 的链 (runner 的 mktemp 目录满足)。

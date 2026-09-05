@@ -97,6 +97,8 @@ func main() {
 		cmd.Pin(arg)
 	case "list", "ls":
 		cmd.List()
+	case "cache":
+		cmd.Cache(args)
 	case "available":
 		opts, err := cmd.ParseAvailableArgs(os.Args[2:])
 		if err != nil {
@@ -166,6 +168,7 @@ func usage() {
                            cd 进含 .jvmrc 的目录时自动切换 (config.toml 设 autoswitch=false 关闭)
   pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)
   list                     列出本地已安装的版本
+  cache [clean]            查看/清空下载缓存 (安装包留存, 卸载重装免重新下载)
   available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
   outdated                 检查已安装版本是否有新 patch 可升级
   update <[distro@]大版本> [-y]  升级该大版本到最新 patch: 装新 → 切换 → 清理旧版

@@ -36,7 +36,8 @@ const completionEndMarker = "# <<< jvm completion <<<"
 // 启动自举自动重写, 保证升级 jvm 后老用户能拿到新补全 (此前只按 marker 存在性
 // 判断, 内容变更后老 profile 永不更新)。改补全脚本内容 (含新增发行版导致的
 // distro 列表变化) 时同步递增此 token。
-const completionVersionToken = "# jvm-completion: v1"
+// v2: 子命令列表补 cache 及其 clean 参数补全。
+const completionVersionToken = "# jvm-completion: v2"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。
@@ -89,7 +90,7 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
     $elements = $commandAst.CommandElements
     $completingSub = ($elements.Count -eq 1) -or ($elements[1].Extent.Text -eq $wordToComplete)
     if ($completingSub) {
-        $cmds = 'install','use','pin','list','ls','available','outdated','update','uninstall','rm','current','home','exec','doctor','init','upgrade','completion','version','help'
+        $cmds = 'install','use','pin','list','ls','available','outdated','update','uninstall','rm','current','home','exec','doctor','init','upgrade','completion','cache','version','help'
         $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
@@ -116,6 +117,10 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
         } | Sort-Object -Unique | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
+    } elseif ($cmd -eq 'cache') {
+        'clean' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
     }
 }
 ` + completionEndMarker
@@ -129,7 +134,7 @@ func bashCompletionScript(distros []string) string {
 	return completionMarker + "\n" + completionVersionToken + `
 # jvm Tab completion (bash / Git Bash): subcommands, distro@ prefix, local versions.
 _jvm_distros="` + distroStr + `"
-_jvm_commands="install use pin list ls available outdated update uninstall rm current home exec doctor init upgrade completion version help"
+_jvm_commands="install use pin list ls available outdated update uninstall rm current home exec doctor init upgrade completion cache version help"
 
 # Convert local version dir name (distro-version or bare version) to distro@version.
 # Bare dirs (no distro prefix) are treated as temurin.
@@ -184,6 +189,9 @@ _jvm() {
                 case " $majors " in *" $v "*) ;; *) majors="$majors $v" ;; esac
             done
             COMPREPLY=($(compgen -W "$majors" -- "$cur"))
+            ;;
+        cache)
+            COMPREPLY=($(compgen -W "clean" -- "$cur"))
             ;;
     esac
     return 0

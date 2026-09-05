@@ -4,15 +4,16 @@
 //
 //	~/.jvm/
 //	  versions/            已安装的 JDK (每个一个子目录, {distro}-{版本} 命名)
+//	  cache/               下载缓存 (安装包 zip 留存, 重装免下载)
 //	  current/             junction, 指向当前选中的版本
 //	  config.toml          用户配置
 //
 // 目录分两层:
 //   - 控制面 (Root): config.toml / current / auto-state。注册表 PATH/JAVA_HOME
 //     指向 Root/current/bin, 永不迁移, 否则环境变量失效。
-//   - 数据面 (dataRoot, 默认 = Root): versions/ 等大体积目录。config.toml 的
-//     install_dir 键 (经 SetInstallDir) 可把它指到其他盘 (如 D:\jdks),
-//     已装版本不自动搬迁。
+//   - 数据面 (dataRoot, 默认 = Root): versions/ / cache/ 等大体积目录。
+//     config.toml 的 install_dir 键 (经 SetInstallDir) 可把它指到其他盘
+//     (如 D:\jdks), 已装版本不自动搬迁。
 package paths
 
 import (
@@ -31,6 +32,11 @@ var dataRoot string
 
 // VersionsDir 是所有已安装 JDK 的存放目录: {dataRoot}/versions
 var VersionsDir string
+
+// CacheDir 是下载缓存目录: {dataRoot}/cache。安装包 zip 以
+// {distro}-{ReleaseName}.zip 命名留存于此, 卸载后重装同版本免重新下载;
+// `jvm cache clean` 清空。
+var CacheDir string
 
 // CurrentLink 是 junction 路径, 始终指向当前选中的版本: ~/.jvm/current
 var CurrentLink string
@@ -51,6 +57,7 @@ func init() {
 // recomputeDataDirs 基于 dataRoot 重算数据面路径。
 func recomputeDataDirs() {
 	VersionsDir = filepath.Join(dataRoot, "versions")
+	CacheDir = filepath.Join(dataRoot, "cache")
 }
 
 // SetInstallDir 把数据面目录 (versions/) 重定向到 dir, 控制面 (Root 下的
@@ -92,10 +99,12 @@ func calcRoot() string {
 	return filepath.Join(home, ".jvm")
 }
 
-// EnsureDirs 确保根目录和 versions 目录存在, 不存在则创建。
+// EnsureDirs 确保根目录、versions 和 cache 目录存在, 不存在则创建。
 func EnsureDirs() error {
-	if err := os.MkdirAll(VersionsDir, 0o755); err != nil {
-		return fmt.Errorf("创建目录失败 %s: %w", VersionsDir, err)
+	for _, dir := range []string{VersionsDir, CacheDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("创建目录失败 %s: %w", dir, err)
+		}
 	}
 	return nil
 }

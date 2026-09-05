@@ -1,9 +1,10 @@
 // Package jdk 负责 JDK 的下载、校验、解压和安装 (发行版无关)。
 //
 // InstallVersion 按 VersionSpec 调 provider 适配器拿 Asset 元数据 (发行版细节
-// 由适配器消化), 再交给 Install 完成下载 (镜像优先, 无镜像则直连官方)、完整性
-// 校验 (SHA256/SHA1, 按 provider 提供)、解压到 ~/.jvm/versions。DownloadFile 是
-// 通用带进度下载, 被 upgrade 包复用。
+// 由适配器消化), 再交给 Install 完成取包 (缓存命中复用, 否则下载到缓存;
+// 镜像优先, 无镜像则直连)、完整性校验 (SHA256/SHA1, 按 provider 提供)、
+// 解压到数据面 versions/。安装包 zip 留存缓存目录供重装复用。
+// DownloadFile 是通用带进度下载, 被 upgrade 包复用。
 package jdk
 
 import (
@@ -49,9 +50,10 @@ func InstallVersion(p provider.Provider, spec app.VersionSpec) error {
 // name 是发行版标识 (用作目录命名前缀和文案), 通常传 asset.Distro;
 // 单独传参是为了让调用方在目录命名上不被 asset.Distro 绑死。
 //
-// 流程: 检查已装 → 下载 (MirrorURL 非空走双源, 否则直连 ZipURL) →
-//
-//	SHA256 校验 → 解压 → 原子替换到 ~/.jvm/versions/{name}-{ReleaseName}。
+// 流程: 检查已装 → 取包 (缓存命中直接用, 否则下载到缓存; MirrorURL 非空走
+// 双源, 否则直连 ZipURL) → SHA256 校验 → 解压 → 原子替换到
+// {dataRoot}/versions/{name}-{ReleaseName}。安装包 zip 留在缓存目录
+// ({dataRoot}/cache/{finalName}.zip), 卸载后重装同版本免重新下载。
 func Install(asset *app.Asset, name string) error {
 	if err := paths.EnsureDirs(); err != nil {
 		return err
@@ -72,30 +74,40 @@ func Install(asset *app.Asset, name string) error {
 		return nil
 	}
 
-	sizeMB := remoteSizeMB(asset.ZipURL)
-	fmt.Printf("📦 将安装 %s %s\n", name, asset.Semver)
-	if sizeMB > 0 {
-		fmt.Printf("   大小约 %.1f MB\n", sizeMB)
-	}
+	// 缓存文件以最终目录名命名: 镜像/官方双源内容一致 (校验和相同), 同键复用。
+	cacheFile := filepath.Join(paths.CacheDir, finalName+".zip")
 
-	// 1. 下载: Asset.MirrorURL 非空 → 镜像优先, 失败回退官方; 否则直连官方。
-	//    (镜像/CDN 直链的解析已由 provider 适配器内化填入 asset, 这里只消费。)
-	zipName := baseNameOfURL(asset.ZipURL)
-	zipPath := filepath.Join(paths.Root, zipName)
-	fmt.Print("🔗 解析下载地址...\n")
-	if asset.MirrorURL != "" {
-		if err := downloadWithFallback(zipPath, asset.MirrorURL, asset.ZipURL); err != nil {
-			return fmt.Errorf("下载失败: %w", err)
-		}
+	if cacheHit(cacheFile, asset) {
+		fmt.Printf("📦 将安装 %s %s\n", name, asset.Semver)
+		fmt.Println("📦 命中下载缓存, 跳过下载:", filepath.Base(cacheFile))
 	} else {
-		fmt.Print("⬇️  下载 (无国内镜像, 直连官方源)...\n")
-		if err := download(asset.ZipURL, zipPath); err != nil {
-			return fmt.Errorf("下载失败: %w", err)
+		sizeMB := remoteSizeMB(asset.ZipURL)
+		fmt.Printf("📦 将安装 %s %s\n", name, asset.Semver)
+		if sizeMB > 0 {
+			fmt.Printf("   大小约 %.1f MB\n", sizeMB)
 		}
-	}
-	fmt.Println("✅ 下载完成")
 
-	// 2. 从 zip 里读出顶层目录名 (不依赖预测, 更健壮)
+		// 下载: Asset.MirrorURL 非空 → 镜像优先, 失败回退官方; 否则直连官方。
+		// (镜像/CDN 直链的解析已由 provider 适配器内化填入 asset, 这里只消费。
+		// 下载直接落到缓存路径, DownloadFile 的 .part→rename 语义保证只有完整
+		// 下载成功后才会出现最终 zip 文件。)
+		fmt.Print("🔗 解析下载地址...\n")
+		if asset.MirrorURL != "" {
+			if err := downloadWithFallback(cacheFile, asset.MirrorURL, asset.ZipURL); err != nil {
+				return fmt.Errorf("下载失败: %w", err)
+			}
+		} else {
+			fmt.Print("⬇️  下载 (无国内镜像, 直连官方源)...\n")
+			if err := download(asset.ZipURL, cacheFile); err != nil {
+				return fmt.Errorf("下载失败: %w", err)
+			}
+		}
+		fmt.Println("✅ 下载完成")
+	}
+	zipPath := cacheFile
+
+	// 从 zip 里读出顶层目录名 (不依赖预测, 更健壮)。
+	// 走到这里的失败说明 zip 内容可疑 (下载损坏/缓存投毒), 一律删除缓存文件。
 	topFolder, err := readTopFolder(zipPath)
 	if err != nil {
 		os.Remove(zipPath)
@@ -110,7 +122,8 @@ func Install(asset *app.Asset, name string) error {
 		return fmt.Errorf("zip 顶层目录名不安全, 已中止: %s", topFolder)
 	}
 
-	// 3. 完整性校验 (按 provider 提供的算法: sha256 / sha1; 为空则跳过)
+	// 完整性校验 (按 provider 提供的算法: sha256 / sha1; 为空则跳过)。
+	// 不匹配同样删缓存 (可能是镜像文件损坏或源被换过)。
 	algo := asset.ChecksumAlgo
 	if algo == "" {
 		algo = "sha256"
@@ -118,6 +131,7 @@ func Install(asset *app.Asset, name string) error {
 	fmt.Printf("🔐 校验 %s... ", strings.ToUpper(algo))
 	got, err := fileHash(zipPath, algo)
 	if err != nil {
+		os.Remove(zipPath)
 		return err
 	}
 	if asset.Checksum != "" && got != asset.Checksum {
@@ -126,9 +140,10 @@ func Install(asset *app.Asset, name string) error {
 	}
 	fmt.Println("通过")
 
-	// 4. 解压 (先解到临时目录, 成功后原子替换, 避免半解压状态 / 文件占用)
-	//    zip 内顶层目录名 (topFolder) 是发行版原始命名 (如 jdk-21.0.12+8),
-	//    与我们想要的最终目录名 ({distro}-{ReleaseName}) 不一致, 解压后重命名归一化。
+	// 解压 (先解到临时目录, 成功后原子替换, 避免半解压状态 / 文件占用)。
+	// zip 内顶层目录名 (topFolder) 是发行版原始命名 (如 jdk-21.0.12+8),
+	// 与我们想要的最终目录名 ({distro}-{ReleaseName}) 不一致, 解压后重命名归一化。
+	// 解压/落位失败保留缓存 zip (内容已校验过, 是好的, 重试不该重新下载)。
 	fmt.Print("📂 解压中... ")
 	tmpExtract := filepath.Join(paths.Root, ".tmp-extract-"+topFolder)
 	os.RemoveAll(tmpExtract)
@@ -148,8 +163,7 @@ func Install(asset *app.Asset, name string) error {
 	os.RemoveAll(tmpExtract)
 	fmt.Println("完成")
 
-	// 5. 清理 zip 并确认目标目录存在
-	os.Remove(zipPath)
+	// zip 留在缓存目录 (不再删除), 供卸载后重装/其他机器搬运复用
 	if _, err := os.Stat(finalDir); err != nil {
 		return fmt.Errorf("解压后未找到 %s: %w", finalName, err)
 	}
@@ -157,6 +171,25 @@ func Install(asset *app.Asset, name string) error {
 	fmt.Printf("\n✅ 安装完成: %s\n", finalName)
 	fmt.Printf("   运行 `jvm use %d` 来切换到这个版本\n", asset.Major)
 	return nil
+}
+
+// cacheHit 判断缓存文件是否可直接复用: 文件存在且非空 (DownloadFile 只在
+// 完整下载成功后才 rename 出最终文件, 存在即完整), 且校验和匹配
+// (asset 未提供校验和时跳过内容比对)。
+func cacheHit(file string, asset *app.Asset) bool {
+	info, err := os.Stat(file)
+	if err != nil || info.IsDir() || info.Size() == 0 {
+		return false
+	}
+	if asset.Checksum == "" {
+		return true
+	}
+	algo := asset.ChecksumAlgo
+	if algo == "" {
+		algo = "sha256"
+	}
+	got, err := fileHash(file, algo)
+	return err == nil && got == asset.Checksum
 }
 
 // remoteSizeMB 用 HEAD 请求拿文件大小 (MB); 失败返回 0
@@ -460,12 +493,4 @@ func extractZipFile(f *zip.File, dest string) error {
 	defer out.Close()
 	_, err = io.Copy(out, rc)
 	return err
-}
-
-// baseNameOfURL 取 URL 最后一段作为文件名
-func baseNameOfURL(u string) string {
-	if i := strings.LastIndexByte(u, '/'); i >= 0 {
-		return u[i+1:]
-	}
-	return u
 }
