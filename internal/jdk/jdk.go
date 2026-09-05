@@ -9,6 +9,7 @@ package jdk
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
@@ -313,11 +314,16 @@ func DownloadFile(url, dest string, opts ...DownloadOption) error {
 	}
 
 	// resume 模式下用 .part 作临时文件; 非 resume 直接写 dest。
-	// 重试循环: 瞬时错误 (网络/5xx) 最多 cfg.retries 次, 指数退避。
+	// 重试循环: 瞬时错误 (网络/5xx/停滞看门狗) 最多 cfg.retries 次, 指数退避。
 	var lastErr error
 	for attempt := 0; attempt <= cfg.retries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<(attempt-1)) * time.Second // 1s, 2s, 4s...
+			if cfg.resume {
+				fmt.Printf("⚠️  下载中断/停滞, %v 后重试 (断点续传)...\n", backoff)
+			} else {
+				fmt.Printf("⚠️  下载中断/停滞, %v 后重试...\n", backoff)
+			}
 			time.Sleep(backoff)
 		}
 		lastErr = downloadOnce(url, dest, cfg.resume)
@@ -327,6 +333,12 @@ func DownloadFile(url, dest string, opts ...DownloadOption) error {
 	}
 	return lastErr
 }
+
+// downloadStallTimeout 是下载停滞看门狗的阈值: 距最后一次收到数据超过该时长
+// 即 cancel 本次请求 (计入可重试错误, .part 保留续传)。包级 var 便于测试调小。
+// DownloadClient 不设整体超时 (大文件不能一刀切), 原先连接半死 (不断开但不再
+// 传数据) 会让 io.Copy 永久挂起, 看门狗把这种情况转成一次可重试失败。
+var downloadStallTimeout = 30 * time.Second
 
 // downloadOnce 执行一次下载尝试。
 // resume=true 时探测 .part 已有大小, 发 Range 请求续传; 失败保留 .part。
@@ -341,7 +353,11 @@ func downloadOnce(url, dest string, resume bool) error {
 		}
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	// ctx 供停滞看门狗剪断挂起的读 (见 downloadStallTimeout)。
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -349,6 +365,11 @@ func downloadOnce(url, dest string, resume bool) error {
 	if offset > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
+
+	// 计时器在请求发出前武装, 每读到数据在下方的读循环里 Reset;
+	// 回调只调 cancel (幂等并发安全), 与 Reset 分属不同 goroutine 是
+	// AfterFunc 计时器的合法用法。
+	timer := time.AfterFunc(downloadStallTimeout, cancel)
 
 	resp, err := app.DownloadClient.Do(req)
 	if err != nil {
@@ -393,14 +414,32 @@ func downloadOnce(url, dest string, resume bool) error {
 	total := resolveTotalSize(resp, offset)
 	writeErr := func() error {
 		defer out.Close()
+		defer timer.Stop()
 		var body io.Reader = resp.Body
 		if total > 0 {
 			pr := newProgressReader(resp.Body, total, offset)
 			defer pr.Close()
 			body = pr
 		}
-		_, err := io.Copy(out, body)
-		return err
+		// 手写读循环替代 io.Copy: 每读到数据重置停滞计时器, 无进度超时即由
+		// AfterFunc 回调 cancel → Read 以 context.Canceled 返回, 计入可重试
+		// 错误。total 未知 (无 progressReader) 时同样受看门狗保护。
+		buf := make([]byte, 32*1024)
+		for {
+			n, rerr := body.Read(buf)
+			if n > 0 {
+				timer.Reset(downloadStallTimeout)
+				if _, werr := out.Write(buf[:n]); werr != nil {
+					return werr
+				}
+			}
+			if rerr != nil {
+				if rerr == io.EOF {
+					return nil
+				}
+				return rerr
+			}
+		}
 	}()
 	if writeErr != nil {
 		return writeErr // 写入错误 (可重试, .part 已保留)

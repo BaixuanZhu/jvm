@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestFileHash 验证 fileHash 按算法分流 (sha256/sha1)、空与未知算法回退 sha256、
@@ -292,5 +293,36 @@ func TestDownloadFile_InterruptThenResume(t *testing.T) {
 	// .part 应已被 rename 清理。
 	if _, err := os.Stat(dest + ".part"); !os.IsNotExist(err) {
 		t.Error("续传完成后 .part 应被 rename 清理")
+	}
+}
+
+// TestDownloadStallWatchdog 验证停滞看门狗: 服务端写 1 字节后挂起 (模拟连接
+// 半死 —— 不断开但不再传数据), 看门狗超时 cancel 本次请求报错, .part 保留供
+// 下次断点续传。原先这种情况会让 io.Copy 永久挂起 (DownloadClient 无整体超时)。
+func TestDownloadStallWatchdog(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "x") // 先给一个字节, 让计时器有过至少一次 Reset
+		// 必须显式 Flush: 服务端默认缓冲响应, 不刷的话连响应头都发不出去,
+		// 停滞就落在 Do 等待头阶段 (.part 尚未创建), 测不到读循环的看门狗。
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-block // 然后停滞, 不再传数据也不断开
+	}))
+	defer srv.Close()
+	defer close(block) // 先于 srv.Close 释放挂起的 handler
+
+	orig := downloadStallTimeout
+	downloadStallTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { downloadStallTimeout = orig })
+
+	dest := filepath.Join(t.TempDir(), "out.zip")
+	err := DownloadFile(srv.URL, dest, WithRetries(0), WithResume(true))
+	if err == nil {
+		t.Fatal("连接停滞应被看门狗中断并报错, 实际成功")
+	}
+	if _, serr := os.Stat(dest + ".part"); serr != nil {
+		t.Errorf("停滞中断后 .part 应保留供续传: %v", serr)
 	}
 }
