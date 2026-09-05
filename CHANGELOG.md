@@ -9,6 +9,12 @@
 
 ### 新增
 
+- 本地 zip 包安装：`jvm install <distro@版本> <zip文件路径>`（如
+  `jvm install temurin@21.0.5+11 D:\downloads\jdk.zip`），适合内网/代理环境
+  手动下载后纳管。不访问网络、不做远程校验和校验（本地文件由用户负责），
+  安装后的目录命名与远程安装完全一致，`use`/`uninstall`/`outdated` 等
+  命令照常工作。
+
 - 下载缓存：安装包 zip 以 `{distro}-{版本}.zip` 留存 `~/.jvm/cache/`（随
   `install_dir` 走），卸载后重装同版本直接复用、不再重新下载（命中前先校验
   完整性，损坏/篡改自动删除重新下载）。新命令 `jvm cache` 查看缓存条目与

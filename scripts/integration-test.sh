@@ -226,13 +226,29 @@ expect "提示命中下载缓存" "命中下载缓存"
 run "15h. cache 列表含旧 patch zip" cache
 expect "列表非空" "temurin-21.0.2+13.zip"
 
-run "15i. uninstall 临时版本" uninstall temurin@21.0.2+13 -y
+# 本地包安装: 缓存 zip 拷出来充当 "手动下载的包", 卸载后经双参数形式从本地重装 (零网络)。
+cp "$JVM_HOME/cache/temurin-21.0.2+13.zip" "$JVM_HOME/manual-dl.zip"
+run "15i. uninstall 为本地重装让位" uninstall temurin@21.0.2+13 -y
 expect "已卸载" "已卸载"
 
-run "15j. cache clean 清空" cache clean
+run "15j. install 本地 zip (双参数形式)" install temurin@21.0.2+13 "$JVM_HOME/manual-dl.zip"
+expect "本地包安装提示" "从本地包安装"
+echo "### 15k. 本地安装目录已落位 ###"
+if [ -d "$JVM_HOME/versions/temurin-21.0.2+13" ]; then
+    echo "  ✓ 目录已恢复"
+else
+    echo "  ✗ 本地安装未落位" >&2
+    exit 1
+fi
+rm -f "$JVM_HOME/manual-dl.zip"
+
+run "15l. uninstall 本地装的版本" uninstall temurin@21.0.2+13 -y
+expect "已卸载" "已卸载"
+
+run "15m. cache clean 清空" cache clean
 expect "clean 释放提示" "已清理"
 
-run "15k. cache 列表为空" cache
+run "15n. cache 列表为空" cache
 expect "空缓存提示" "空。"
 
 # --- jvm use --auto: .jvmrc 自动切换状态机 ---

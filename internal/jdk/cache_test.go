@@ -165,3 +165,50 @@ func TestInstallChecksumMismatchPurgesCache(t *testing.T) {
 		t.Errorf("校验失败后缓存文件应被删除, stat err = %v", err)
 	}
 }
+
+// TestInstallLocal 验证本地 zip 安装: 目录命名与远程一致、幂等 (已装跳过)、
+// 不安全版本号与坏 zip 报错且不动用户源文件。
+func TestInstallLocal(t *testing.T) {
+	withTempJdkDirs(t)
+
+	zipPath := filepath.Join(t.TempDir(), "manual-dl.zip")
+	writeTestZip(t, zipPath, "jdk-21.0.5+11")
+	spec := app.VersionSpec{Distro: "temurin", Version: "21.0.5+11"}
+
+	if err := InstallLocal(zipPath, spec); err != nil {
+		t.Fatalf("本地安装失败: %v", err)
+	}
+	dir := filepath.Join(paths.VersionsDir, "temurin-21.0.5+11")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("应落位 %s: %v", dir, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "readme.txt")); err != nil {
+		t.Errorf("zip 内容应解压到位: %v", err)
+	}
+
+	// 幂等: 二次安装不报错 (已装提示)
+	if err := InstallLocal(zipPath, spec); err != nil {
+		t.Errorf("重复安装应幂等, got: %v", err)
+	}
+
+	// 版本号含非法字符 → 报错 (在已装检查之前)
+	if err := InstallLocal(zipPath, app.VersionSpec{Distro: "temurin", Version: "21.0.5 +11"}); err == nil {
+		t.Error("不安全版本号应报错")
+	}
+
+	// zip 不存在 → 报错 (用未安装过的版本, 绕开已装跳过)
+	missing := app.VersionSpec{Distro: "temurin", Version: "17.0.12+7"}
+	if err := InstallLocal(filepath.Join(t.TempDir(), "nope.zip"), missing); err == nil {
+		t.Error("zip 不存在应报错")
+	}
+
+	// 坏 zip (非压缩格式) → 报错, 且不删用户源文件
+	badZip := filepath.Join(t.TempDir(), "bad.zip")
+	os.WriteFile(badZip, []byte("not a zip at all"), 0o644)
+	if err := InstallLocal(badZip, missing); err == nil {
+		t.Error("坏 zip 应报错")
+	}
+	if _, err := os.Stat(badZip); err != nil {
+		t.Errorf("本地包失败时不应删除用户源文件: %v", err)
+	}
+}

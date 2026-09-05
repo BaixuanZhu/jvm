@@ -75,9 +75,11 @@ func main() {
 	switch command {
 	case "install":
 		if len(args) < 1 {
-			app.Fail("用法: jvm install <[distro@]版本号>  例如: jvm install 21  或  jvm install corretto@21")
+			app.Fail("用法: jvm install <[distro@]版本号> [zip文件]\n" +
+				"  远程安装: jvm install 21  或  jvm install corretto@21\n" +
+				"  本地包:   jvm install temurin@21.0.5+11 D:\\downloads\\jdk.zip")
 		}
-		cmd.Install(args[0])
+		cmd.Install(args)
 	case "use":
 		// --auto 由 shell 集成钩子调用 (cd 进/离开 .jvmrc 目录时), 用户不直接敲
 		if len(args) >= 1 && args[0] == "--auto" {
@@ -164,6 +166,8 @@ func usage() {
 
 命令:
   install <[distro@]版本>  安装 JDK (例如: jvm install 21  或  jvm install corretto@21)
+                           本地 zip 包: jvm install temurin@21.0.5+11 D:\downloads\jdk.zip
+                           (内网/代理下手动下载的场景, 不走网络与远程校验)
   use <[distro@]版本>      切换到指定版本 (无参则读 .jvmrc; 大版本号取最新, 完整版本号精确)
                            cd 进含 .jvmrc 的目录时自动切换 (config.toml 设 autoswitch=false 关闭)
   pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)

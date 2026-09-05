@@ -45,6 +45,53 @@ func InstallVersion(p provider.Provider, spec app.VersionSpec) error {
 	return Install(asset, p.Name())
 }
 
+// InstallLocal 从本地 zip 包安装 (jvm install <distro@版本> <zip文件>,
+// 内网/代理下手动下载的场景)。不走网络、不做远程校验和校验 (用户对自己的
+// 文件负责), 目录命名与远程安装完全一致: {VersionsDir}/{spec.Distro}-{spec.Version}。
+func InstallLocal(zipPath string, spec app.VersionSpec) error {
+	if err := paths.EnsureDirs(); err != nil {
+		return err
+	}
+	if !safeVersionDir.MatchString(spec.Version) {
+		return fmt.Errorf("版本号含不安全字符: %s", spec.Version)
+	}
+	finalName := spec.Distro + "-" + spec.Version
+
+	target := filepath.Join(paths.VersionsDir, finalName)
+	if info, _ := os.Stat(target); info != nil && info.IsDir() {
+		fmt.Printf("⚠️  已安装 %s\n", finalName)
+		fmt.Printf("   如需重装, 请先 jvm uninstall %s\n", finalName)
+		return nil
+	}
+
+	info, err := os.Stat(zipPath)
+	if err != nil || info.IsDir() {
+		return fmt.Errorf("zip 文件不存在: %s", zipPath)
+	}
+	fmt.Printf("📦 从本地包安装 %s\n", finalName)
+	fmt.Printf("   源: %s (%.1f MB, 不做远程校验和校验)\n", zipPath, float64(info.Size())/1024/1024)
+
+	// 读顶层目录。与 Install 不同, 失败不删用户的源文件。
+	topFolder, err := readTopFolder(zipPath)
+	if err != nil {
+		return err
+	}
+	if topFolder == "" {
+		return fmt.Errorf("zip 内未找到顶层目录")
+	}
+	if !safeVersionDir.MatchString(topFolder) {
+		return fmt.Errorf("zip 顶层目录名不安全, 已中止: %s", topFolder)
+	}
+
+	if err := extractAndPlace(zipPath, topFolder, finalName); err != nil {
+		return err
+	}
+
+	fmt.Printf("\n✅ 安装完成: %s\n", finalName)
+	fmt.Printf("   运行 `jvm use %s@%s` 来切换到这个版本\n", spec.Distro, spec.Version)
+	return nil
+}
+
 // Install 下载并安装一个已查好的 Asset (发行版无关)。
 //
 // name 是发行版标识 (用作目录命名前缀和文案), 通常传 asset.Distro;
@@ -141,9 +188,20 @@ func Install(asset *app.Asset, name string) error {
 	fmt.Println("通过")
 
 	// 解压 (先解到临时目录, 成功后原子替换, 避免半解压状态 / 文件占用)。
-	// zip 内顶层目录名 (topFolder) 是发行版原始命名 (如 jdk-21.0.12+8),
-	// 与我们想要的最终目录名 ({distro}-{ReleaseName}) 不一致, 解压后重命名归一化。
 	// 解压/落位失败保留缓存 zip (内容已校验过, 是好的, 重试不该重新下载)。
+	if err := extractAndPlace(zipPath, topFolder, finalName); err != nil {
+		return err
+	}
+
+	fmt.Printf("\n✅ 安装完成: %s\n", finalName)
+	fmt.Printf("   运行 `jvm use %d` 来切换到这个版本\n", asset.Major)
+	return nil
+}
+
+// extractAndPlace 解压并原子落位: 先解到临时目录, 再把 zip 内顶层目录
+// (topFolder, 发行版原始命名如 jdk-21.0.12+8) 重命名归一化为最终目录名
+// ({distro}-{ReleaseName})。被远程 Install 与本地 InstallLocal 共用。
+func extractAndPlace(zipPath, topFolder, finalName string) error {
 	fmt.Print("📂 解压中... ")
 	tmpExtract := filepath.Join(paths.Root, ".tmp-extract-"+topFolder)
 	os.RemoveAll(tmpExtract)
@@ -163,13 +221,9 @@ func Install(asset *app.Asset, name string) error {
 	os.RemoveAll(tmpExtract)
 	fmt.Println("完成")
 
-	// zip 留在缓存目录 (不再删除), 供卸载后重装/其他机器搬运复用
 	if _, err := os.Stat(finalDir); err != nil {
 		return fmt.Errorf("解压后未找到 %s: %w", finalName, err)
 	}
-
-	fmt.Printf("\n✅ 安装完成: %s\n", finalName)
-	fmt.Printf("   运行 `jvm use %d` 来切换到这个版本\n", asset.Major)
 	return nil
 }
 

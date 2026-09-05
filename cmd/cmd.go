@@ -25,9 +25,27 @@ import (
 	"jvm/internal/provider"
 )
 
-// Install 处理 jvm install <版本号>
+// Install 处理 jvm install 的两种形态:
+//
+//	jvm install <[distro@]版本>           远程下载安装 (查询 provider 后下载)
+//	jvm install <[distro@]版本> <zip文件>  从本地 zip 安装 (内网/手动下载场景)
+//
 // 版本号支持: 21 (大版本取最新) / 21.0.12+8 (完整版本精确) / corretto@21 (指定发行版)
-func Install(arg string) {
+func Install(args []string) {
+	switch len(args) {
+	case 1:
+		installRemote(args[0])
+	case 2:
+		installFromZip(args[0], args[1])
+	default:
+		app.Fail("用法: jvm install <[distro@]版本号> [zip文件]\n" +
+			"  远程安装: jvm install 21  或  jvm install corretto@21\n" +
+			"  本地包:   jvm install temurin@21.0.5+11 D:\\downloads\\jdk.zip")
+	}
+}
+
+// installRemote 走 provider 查询 + 下载的常规安装链路。
+func installRemote(arg string) {
 	spec, err := app.ParseVersionSpec(arg)
 	if err != nil {
 		app.Fail(err.Error())
@@ -37,6 +55,27 @@ func Install(arg string) {
 		app.Fail(err.Error())
 	}
 	if err := jdk.InstallVersion(p, spec); err != nil {
+		app.Fail(err.Error())
+	}
+}
+
+// installFromZip 从本地 zip 安装: distro 仍须是已注册发行版 (保持目录命名与
+// use/uninstall 匹配的一致性), 版本串原样用作目录名 (完整版本号, 不做解析)。
+func installFromZip(versionArg, zipPath string) {
+	spec, err := app.ParseVersionSpec(versionArg)
+	if err != nil {
+		app.Fail(err.Error())
+	}
+	if _, err := provider.Get(spec.Distro); err != nil {
+		app.Fail(err.Error())
+	}
+	if strings.ToLower(filepath.Ext(zipPath)) != ".zip" {
+		app.Fail("仅支持 zip 包: " + zipPath)
+	}
+	if info, err := os.Stat(zipPath); err != nil || info.IsDir() {
+		app.Fail("zip 文件不存在: " + zipPath)
+	}
+	if err := jdk.InstallLocal(zipPath, spec); err != nil {
 		app.Fail(err.Error())
 	}
 }
