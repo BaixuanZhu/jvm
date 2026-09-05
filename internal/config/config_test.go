@@ -34,10 +34,11 @@ func setEnv(t *testing.T, key, value string) {
 	})
 }
 
-// clearEnv 清掉 JVM_MIRROR / JVM_ARCH / JVM_AUTOSWITCH, 避免真实环境干扰测试。
+// clearEnv 清掉 JVM_MIRROR / JVM_ARCH / JVM_AUTOSWITCH / JVM_INSTALL_DIR,
+// 避免真实环境干扰测试。
 func clearJVMEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"JVM_MIRROR", "JVM_ARCH", "JVM_AUTOSWITCH"} {
+	for _, key := range []string{"JVM_MIRROR", "JVM_ARCH", "JVM_AUTOSWITCH", "JVM_INSTALL_DIR"} {
 		if v, had := os.LookupEnv(key); had {
 			os.Unsetenv(key)
 			t.Cleanup(func() { os.Setenv(key, v) })
@@ -220,5 +221,43 @@ func TestLoadAutoSwitchEnvInvalidIgnored(t *testing.T) {
 	setEnv(t, "JVM_AUTOSWITCH", "flase") // 拼错 → 忽略, 保持默认
 	if cfg := Load(); !cfg.AutoSwitch {
 		t.Error("非法布尔值应被忽略并保持默认 true")
+	}
+}
+
+// === install_dir (数据目录重定向) ===
+
+func TestLoadInstallDirDefaultEmpty(t *testing.T) {
+	withTempRoot(t)
+	clearJVMEnv(t)
+	if cfg := Load(); cfg.InstallDir != "" {
+		t.Errorf("默认 install_dir 应为空, got %q", cfg.InstallDir)
+	}
+}
+
+func TestLoadInstallDirFile(t *testing.T) {
+	root := withTempRoot(t)
+	clearJVMEnv(t)
+	os.WriteFile(filepath.Join(root, "config.toml"), []byte(`install_dir = "D:\\jdks"`+"\n"), 0o644)
+	if cfg := Load(); cfg.InstallDir != `D:\jdks` {
+		t.Errorf("install_dir 应取文件值, got %q", cfg.InstallDir)
+	}
+}
+
+func TestLoadInstallDirEnvOverridesFile(t *testing.T) {
+	root := withTempRoot(t)
+	os.WriteFile(filepath.Join(root, "config.toml"), []byte(`install_dir = "D:\\from-file"`+"\n"), 0o644)
+	setEnv(t, "JVM_INSTALL_DIR", `E:\env-jdks`)
+	if cfg := Load(); cfg.InstallDir != `E:\env-jdks` {
+		t.Errorf("环境变量应覆盖文件, got %q", cfg.InstallDir)
+	}
+}
+
+func TestLoadInstallDirEmptyIgnored(t *testing.T) {
+	root := withTempRoot(t)
+	clearJVMEnv(t)
+	os.WriteFile(filepath.Join(root, "config.toml"), []byte(`install_dir = "D:\\jdks"`+"\n"), 0o644)
+	setEnv(t, "JVM_INSTALL_DIR", "   ") // 空白环境变量不应覆盖文件值
+	if cfg := Load(); cfg.InstallDir != `D:\jdks` {
+		t.Errorf("空白环境变量不应覆盖文件, got %q", cfg.InstallDir)
 	}
 }

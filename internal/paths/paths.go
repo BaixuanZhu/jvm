@@ -1,25 +1,35 @@
 // Package paths 提供 jvm 的目录路径配置。
 //
-// jvm 的所有数据都在 ~/.jvm 下, 结构:
+// jvm 的所有数据默认都在 ~/.jvm 下, 结构:
 //
 //	~/.jvm/
-//	  versions/            已安装的 JDK (每个一个子目录, 以纯 semver 命名)
-//	    21.0.12+8/
+//	  versions/            已安装的 JDK (每个一个子目录, {distro}-{版本} 命名)
 //	  current/             junction, 指向当前选中的版本
+//	  config.toml          用户配置
 //
-// 这些路径在 init() 里基于用户主目录计算, 全局只读。
+// 目录分两层:
+//   - 控制面 (Root): config.toml / current / auto-state。注册表 PATH/JAVA_HOME
+//     指向 Root/current/bin, 永不迁移, 否则环境变量失效。
+//   - 数据面 (dataRoot, 默认 = Root): versions/ 等大体积目录。config.toml 的
+//     install_dir 键 (经 SetInstallDir) 可把它指到其他盘 (如 D:\jdks),
+//     已装版本不自动搬迁。
 package paths
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Root 是 jvm 的根目录: ~/.jvm
+// Root 是 jvm 的控制面根目录: ~/.jvm (或 JVM_HOME 指定的目录)。
 var Root string
 
-// VersionsDir 是所有已安装 JDK 的存放目录: ~/.jvm/versions
+// dataRoot 是数据面根目录 (versions 等的父目录), 默认与 Root 相同,
+// 经 SetInstallDir 重定向。
+var dataRoot string
+
+// VersionsDir 是所有已安装 JDK 的存放目录: {dataRoot}/versions
 var VersionsDir string
 
 // CurrentLink 是 junction 路径, 始终指向当前选中的版本: ~/.jvm/current
@@ -32,9 +42,36 @@ var AutoStateFile string
 
 func init() {
 	Root = calcRoot()
-	VersionsDir = filepath.Join(Root, "versions")
+	dataRoot = Root
 	CurrentLink = filepath.Join(Root, "current")
 	AutoStateFile = filepath.Join(Root, "auto-state")
+	recomputeDataDirs()
+}
+
+// recomputeDataDirs 基于 dataRoot 重算数据面路径。
+func recomputeDataDirs() {
+	VersionsDir = filepath.Join(dataRoot, "versions")
+}
+
+// SetInstallDir 把数据面目录 (versions/) 重定向到 dir, 控制面 (Root 下的
+// config.toml / current / auto-state) 不动 —— 注册表 PATH/JAVA_HOME 指向的
+// ~/.jvm/current/bin 依旧有效, 无需任何迁移。
+//
+// dir 为相对路径时以进程 cwd 解析为绝对路径; 空串为 no-op。需在命令执行前
+// 调用 (main 在 config.Load 后立即调)。已装版本不会自动搬迁: 旧默认目录里的
+// 内容切换后即从 jvm list 消失, 需手动搬到新目录。
+func SetInstallDir(dir string) error {
+	d := strings.TrimSpace(dir)
+	if d == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(d)
+	if err != nil {
+		return fmt.Errorf("install_dir 无法解析为绝对路径: %w", err)
+	}
+	dataRoot = abs
+	recomputeDataDirs()
+	return nil
 }
 
 // calcRoot 返回 jvm 根目录: 优先 JVM_HOME 环境变量 (便于 CI / 集成测试把整个

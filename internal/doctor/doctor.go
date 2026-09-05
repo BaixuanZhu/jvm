@@ -53,7 +53,9 @@ type profileItem struct {
 
 // Run 执行全部检查并打印诊断报告。fix 为 true 时 (--fix) 对失败项执行自动修复,
 // assumeYes 为 true 时 (-y) 跳过残留清理的逐条确认 (供脚本调用)。
-func Run(fix, assumeYes bool) {
+// installDir 是 config.toml 的 install_dir 值 (空 = 未配置), 用于检测
+// 数据目录重定向后旧默认目录的残留版本 (只提示, 不自动搬迁)。
+func Run(fix, assumeYes bool, installDir string) {
 	fmt.Println("🏥 jvm 环境诊断")
 	fmt.Println(strings.Repeat("─", 40))
 
@@ -67,8 +69,14 @@ func Run(fix, assumeYes bool) {
 	}
 	javaBin := filepath.Join(paths.CurrentLink, "bin", "java.exe")
 
+	// install_dir 重定向后, 旧默认目录 {Root}/versions 若仍有版本则提示搬迁
+	legacyVersions := ""
+	if installDir != "" {
+		legacyVersions = filepath.Join(paths.Root, "versions")
+	}
+
 	checks := []check{
-		checkDirs(paths.Root, paths.VersionsDir),
+		checkDirs(paths.Root, paths.VersionsDir, legacyVersions),
 		checkJunction(paths.CurrentLink),
 		checkJavaHome(javaHome, paths.CurrentLink),
 		checkPathConflict(os.Getenv("PATH"), paths.CurrentLink),
@@ -113,8 +121,10 @@ func printCheck(c check) {
 	}
 }
 
-// checkDirs 检查 root 和 versions 目录是否存在。
-func checkDirs(root, versionsDir string) check {
+// checkDirs 检查 root 和 versions 目录是否存在。legacyVersions 非空表示
+// install_dir 重定向过, 此时旧默认目录若仍有已装版本, 附带搬迁提示 (信息性,
+// 不算失败 —— 搬迁需跨目录移动大量数据, 只交给用户手动做)。
+func checkDirs(root, versionsDir, legacyVersions string) check {
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return check{
 			ok:     false,
@@ -131,7 +141,28 @@ func checkDirs(root, versionsDir string) check {
 			fix:    "运行 jvm install <版本号> 安装一个 JDK",
 		}
 	}
-	return check{ok: true, name: "目录结构", detail: "~/.jvm 和 versions 目录就绪"}
+	detail := "~/.jvm 和 versions 目录就绪"
+	if legacyVersions != "" && legacyVersions != versionsDir {
+		if n := countSubdirs(legacyVersions); n > 0 {
+			detail = fmt.Sprintf("~/.jvm 和 versions 目录就绪 (提示: 旧默认目录 %s 仍有 %d 个版本, 可手动搬迁到 %s)", legacyVersions, n, versionsDir)
+		}
+	}
+	return check{ok: true, name: "目录结构", detail: detail}
+}
+
+// countSubdirs 统计目录下的子目录数 (不存在返回 0)。
+func countSubdirs(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			n++
+		}
+	}
+	return n
 }
 
 // checkJunction 检查 current 链接是否有效。

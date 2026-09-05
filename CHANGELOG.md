@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 配置文件新增 `install_dir` 键（环境变量 `JVM_INSTALL_DIR` 同效）：把 JDK 安装
+  数据目录（`versions/`）重定向到其他盘（如 `D:\jdks`），适合 C 盘空间紧张的
+  场景。控制面（`config.toml`、`current` junction、注册表 PATH/JAVA_HOME）
+  留在 `~/.jvm` 不动，无需任何迁移即生效；已装版本需手动搬到新目录，
+  `jvm doctor` 检测到旧默认目录仍有版本时会给出搬迁提示。
+
 ## [0.12.0] - 2026-09-05
 
 ### 新增

@@ -18,13 +18,13 @@ func TestCheckDirs(t *testing.T) {
 		root := t.TempDir()
 		versions := filepath.Join(root, "versions")
 		os.MkdirAll(versions, 0o755)
-		c := checkDirs(root, versions)
+		c := checkDirs(root, versions, "")
 		if !c.ok {
 			t.Errorf("期望通过, got detail=%q", c.detail)
 		}
 	})
 	t.Run("root 不存在", func(t *testing.T) {
-		c := checkDirs(filepath.Join(t.TempDir(), "missing"), "whatever")
+		c := checkDirs(filepath.Join(t.TempDir(), "missing"), "whatever", "")
 		if c.ok {
 			t.Error("期望失败 (root 不存在)")
 		}
@@ -34,7 +34,7 @@ func TestCheckDirs(t *testing.T) {
 	})
 	t.Run("versions 不存在", func(t *testing.T) {
 		root := t.TempDir()
-		c := checkDirs(root, filepath.Join(root, "versions"))
+		c := checkDirs(root, filepath.Join(root, "versions"), "")
 		if c.ok {
 			t.Error("期望失败 (versions 不存在)")
 		}
@@ -46,9 +46,38 @@ func TestCheckDirs(t *testing.T) {
 		root := t.TempDir()
 		filePath := filepath.Join(root, "notdir")
 		os.WriteFile(filePath, []byte("x"), 0o644)
-		c := checkDirs(filePath, "whatever")
+		c := checkDirs(filePath, "whatever", "")
 		if c.ok {
 			t.Error("期望失败 (root 是文件)")
+		}
+	})
+	t.Run("install_dir 重定向且旧默认目录有版本", func(t *testing.T) {
+		root := t.TempDir()
+		legacy := filepath.Join(root, "versions")
+		os.MkdirAll(filepath.Join(legacy, "temurin-21.0.8+15"), 0o755)
+		os.MkdirAll(filepath.Join(legacy, "temurin-17.0.12+7"), 0o755)
+		newDir := filepath.Join(t.TempDir(), "jdks", "versions")
+		os.MkdirAll(newDir, 0o755)
+		c := checkDirs(root, newDir, legacy)
+		if !c.ok {
+			t.Error("旧目录残留是信息性提示, 不应算失败")
+		}
+		if !strings.Contains(c.detail, "仍有 2 个版本") {
+			t.Errorf("detail 应提示旧目录版本数, got %q", c.detail)
+		}
+	})
+	t.Run("install_dir 重定向但旧默认目录为空", func(t *testing.T) {
+		root := t.TempDir()
+		legacy := filepath.Join(root, "versions")
+		os.MkdirAll(legacy, 0o755)
+		newDir := filepath.Join(t.TempDir(), "jdks", "versions")
+		os.MkdirAll(newDir, 0o755)
+		c := checkDirs(root, newDir, legacy)
+		if !c.ok {
+			t.Error("期望通过")
+		}
+		if strings.Contains(c.detail, "旧默认目录") {
+			t.Errorf("旧目录为空不应提示, got %q", c.detail)
 		}
 	})
 }

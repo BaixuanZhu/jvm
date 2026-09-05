@@ -20,6 +20,7 @@ import (
 	"jvm/internal/doctor"
 	"jvm/internal/env"
 	"jvm/internal/junction"
+	"jvm/internal/paths"
 	"jvm/internal/provider"
 	_ "jvm/internal/provider/corretto"  // 注册 Amazon Corretto 适配器 (init 副作用)
 	_ "jvm/internal/provider/liberica"  // 注册 BellSoft Liberica 适配器 (init 副作用)
@@ -37,6 +38,14 @@ func main() {
 	// 必须在任何网络请求前完成, 故置于自举链路最前面。
 	cfg := config.Load()
 	provider.ConfigureAll(cfg.Arch, cfg.Mirror)
+
+	// install_dir 配置把数据面 (versions/) 重定向到其他盘。必须先于所有读
+	// paths.VersionsDir 的启动逻辑 (MigrateLegacyDirs 等) 与命令执行。
+	if cfg.InstallDir != "" {
+		if err := paths.SetInstallDir(cfg.InstallDir); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  install_dir 配置无效, 使用默认目录: %v\n", err)
+		}
+	}
 
 	// 静默自举: 把 jvm 自身目录加入 PATH + 安装 shell 集成 (首次运行, 幂等)
 	// 这样用户无需任何手动配置, 重开终端后 jvm use 即在当前终端即时生效。
@@ -116,7 +125,7 @@ func main() {
 				assumeYes = true
 			}
 		}
-		doctor.Run(fix, assumeYes)
+		doctor.Run(fix, assumeYes, cfg.InstallDir)
 	case "init":
 		shell.InitDispatch(args)
 	case "completion":
