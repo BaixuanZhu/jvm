@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-05
+
 ### 修复
 
 - 修复 JDK 下载在连接停滞（对端不断开但不再传数据）时无限挂起的问题：下载
@@ -365,7 +367,10 @@
 - SHA256 校验、zip-slip 防护、原子解压。
 - NSIS 安装包 + GitHub Actions 自动发布。
 
-[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/BaixuanZhu/jvm/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/BaixuanZhu/jvm/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/BaixuanZhu/jvm/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/BaixuanZhu/jvm/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/BaixuanZhu/jvm/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/BaixuanZhu/jvm/compare/v0.9.0...v0.10.0
