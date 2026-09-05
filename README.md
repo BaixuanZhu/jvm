@@ -3,21 +3,25 @@
 > 🌐 **官网**：<https://baixuanzhu.github.io/jvm/>
 
 一个类似 nvm-windows / jabba 的 JDK 版本管理工具，专为 Windows 设计。
-支持 **Temurin / Corretto / Microsoft / Azul Zulu / BellSoft Liberica** 等多个发行版，提供双击安装包，无需管理员权限。
+支持 **Temurin / Corretto / Microsoft / Azul Zulu / BellSoft Liberica / Oracle GraalVM** 等多个发行版（另有 Temurin 早期访问变体 `temurin-ea`，跟踪尚未 GA 的预览版），提供双击安装包，无需管理员权限。
 
 ## 特性
 
 - 📦 **一键安装**：`jvm install 21` 自动下载最新 GA 版本
-- 🌐 **多发行版**：`jvm install corretto@21` / `jvm install zulu@21` / `jvm install liberica@21` 切换发行版（省略前缀默认 temurin）
+- 🌐 **多发行版**：`jvm install corretto@21` / `jvm install zulu@21` / `jvm install liberica@21` / `jvm install graalvm@21` 切换发行版（省略前缀默认 temurin；`temurin-ea@28` 装 GA 前的预览版）
 - 🎯 **精确版本**：`jvm install 21.0.12+8` 安装指定小版本（完整版本号精确匹配）
+- 📁 **本地包安装**：`jvm install temurin@21.0.5+11 D:\jdk.zip` 从手动下载的 zip 纳管（内网/代理环境零网络）
+- 💾 **下载缓存**：安装包自动留存，卸载后重装同版本免重新下载（`jvm cache` 查看/清理）
 - 🔄 **秒级切换**：`jvm use 21` 通过 Windows junction 切换，立即生效
 - ⚡ **当前终端即时生效**：自动注入 shell 函数，`use` 后当前窗口的 `java` 立刻变，无需重开
 - 🔧 **自动配 PATH**：jvm 首次运行自动把自己加入 PATH + 安装 shell 集成，全程零配置
 - 🚫 **免管理员权限**：junction 不需要提权
-- 🔐 **自动校验**：SHA256 校验，下载损坏会报错
+- 🔐 **自动校验**：SHA256 校验（Liberica 官方仅提供 SHA1，按发行版官方提供的算法校验），下载损坏会报错
 - 🏠 **国内加速**：Temurin 优先走清华镜像，失败自动回退官方 CDN
 - 🎈 **自动配 JAVA_HOME 和 PATH**：Maven / Gradle / IDE 都能识别
 - 📌 **大版本取最新**：`jvm use 21` 自动切到该大版本的最新 patch
+- ⬆️ **patch 一键升级**：`jvm update 21` 装最新 patch → 自动切换 → 清理旧版一步到位；`jvm update --all` 批量升级全部落后版本
+- 🗂️ **数据目录可迁移**：`install_dir` 配置把 versions/ 挪到其他盘，C 盘不再吃紧
 - 🔄 **自更新**：`jvm upgrade` 通过 GitHub Release 更新（需配置仓库）
 
 ## 安装
@@ -87,7 +91,10 @@ jvm install corretto@21     # 安装 corretto JDK 21 最新版
 jvm install microsoft@21    # 安装 microsoft JDK 21 最新版
 jvm install zulu@21         # 安装 zulu JDK 21 最新版
 jvm install liberica@21     # 安装 liberica JDK 21 最新版
+jvm install graalvm@21      # 安装 Oracle GraalVM 21 (CPU LTS 线)
+jvm install temurin-ea@28   # 安装 temurin 28 早期访问版 (GA 前预览)
 jvm install 21.0.12+8       # 安装 temurin 精确版本 (完整版本号, 含 build 号)
+jvm install temurin@21.0.5+11 D:\jdk.zip   # 从本地 zip 安装 (内网/手动下载, 零网络)
 jvm use 21                  # 切换到 21 (大版本号取最新)
 jvm use corretto@21         # 切换到 corretto 21
 jvm use                     # 无参则读当前目录的 .jvmrc 切换版本
@@ -95,16 +102,22 @@ jvm pin corretto@21         # 固定此目录用 corretto 21 (写入 .jvmrc)
 jvm pin                     # 把当前版本写入 .jvmrc (无参用 current)
 jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过)
 jvm exec 17 -- mvn test     # 用 JDK 17 执行命令 (不动全局版本; 无版本号则读 .jvmrc)
+jvm update 21 -y            # 升级 21 到最新 patch: 装新 → 切换 → 清理旧版
+jvm update --all -y         # 批量升级全部落后版本组 (一次确认, 失败不阻断其余)
 
 # 查询
 jvm list                    # 已安装版本 (→ 标记当前)
-jvm available               # 可安装的大版本 (标记 LTS)
+jvm available               # 可安装的大版本 (标记 LTS; 结果本地缓存 10 分钟)
 jvm available corretto      # 查看 corretto 可安装版本
 jvm available -a            # 列出每个大版本的全部子版本
 jvm available --major 21    # 只看 JDK 21 的全部子版本
+jvm available -r            # 绕过缓存强制刷新直查
 jvm current                 # 当前版本 (会实际执行 java -version)
+jvm home                    # 打印当前 JAVA_HOME 路径 (供脚本/IDE 引用)
 jvm outdated                # 检查已安装版本是否有新 patch 可升级
-jvm doctor                  # 诊断环境配置 (PATH/junction/JAVA_HOME/shell 集成)
+jvm cache                   # 查看下载缓存 (安装包留存, 重装免下载)
+jvm cache clean             # 清空下载缓存
+jvm doctor                  # 诊断环境配置 (14 项: PATH/junction/JAVA_HOME/集成/残留...)
 jvm doctor --fix            # 诊断 + 自动修复可修项 (PATH 残留删除前逐条确认, -y 跳过)
 
 # Shell 集成 (当前终端立即生效)
@@ -170,11 +183,13 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 
 ```
 ~/.jvm/
-  versions/
-    21.0.12+8/          ← 解压后的 JDK（以纯 semver 命名）
-    17.0.20+8/
-  current/              ← junction，指向当前选中的版本
-    bin/java.exe ...    ← 通过 junction 访问
+  versions/               ← 已安装的 JDK (每个一个子目录, {distro}-{版本} 命名)
+    temurin-21.0.12+8/
+    corretto-21.0.12.8.1/
+  cache/                  ← 下载缓存 (安装包 zip 留存, 卸载重装免重新下载)
+  current/                ← junction，指向当前选中的版本
+    bin/java.exe ...      ← 通过 junction 访问
+  config.toml             ← 用户配置 (可选)
 ```
 
 - **PATH** 永远指向 `~/.jvm/current/bin`（只配置一次）
@@ -195,17 +210,27 @@ arch = "aarch64"
 
 # .jvmrc 目录自动切换 (默认开启; cd 进含 .jvmrc 的目录自动切版本, 离开恢复)。
 autoswitch = true
+
+# JDK 数据目录重定向 (默认空 = ~/.jvm)。把 versions/ 和 cache/ 挪到其他盘,
+# 适合 C 盘空间紧张的场景。控制面 (config.toml/current/注册表) 留在 ~/.jvm
+# 不动, 无需迁移即生效; 已装版本需手动搬到新目录, jvm doctor 会给出提示。
+# install_dir = "D:\\jdks"
 ```
+
+> `jvm available` 的查询结果会本地缓存 10 分钟（`~/.jvm/available-cache.json`），
+> 二次查询免打各发行版 API；加 `-r` / `--refresh` 强制直查。
 
 各发行版的 Windows ARM64 (aarch64) 支持情况：
 
 | 发行版 | Windows ARM64 构建 | 说明 |
 |---|---|---|
 | Temurin | ⚠️ 部分版本有 | Adoptium 官方 Windows ARM64 覆盖不全（如 21 有、17/25 暂无，以 API 实际返回为准）；缺失版本查询时报错会带 `(windows/aarch64)` 上下文 |
+| Temurin EA | ⚠️ 同 Temurin | 早期访问版走同一 Adoptium API，ARM64 覆盖随上游滚动 |
 | Microsoft | ✅ 有 | 11 / 17 / 21 / 25 全部 LTS 均有 ARM64 构建 |
 | Zulu | ✅ 有 | Azul 提供 Windows ARM64 构建（API `arch=arm64`） |
 | Liberica | ✅ 有 | BellSoft 提供 Windows ARM64 构建（API `arch=arm&bitness=64`） |
 | Corretto | ❌ 没有 | 官方未发布 Windows ARM64 构建；`arch=aarch64` 时安装/查询会明确报错并建议改用 Temurin / Microsoft / Zulu / Liberica |
+| GraalVM | ❌ 没有 | Oracle 官方无 Windows ARM64 构建；`arch=aarch64` 时会明确报错并建议改用 Temurin / Microsoft |
 
 也可用环境变量临时覆盖（优先级高于配置文件），适合一次性切换：
 
@@ -213,6 +238,7 @@ autoswitch = true
 $env:JVM_MIRROR = "https://your.mirror/Adoptium"
 $env:JVM_ARCH = "aarch64"
 $env:JVM_AUTOSWITCH = "0"    # 临时关闭 .jvmrc 自动切换
+$env:JVM_INSTALL_DIR = "D:\jdks"   # 临时重定向数据目录
 jvm install 21
 ```
 
@@ -243,8 +269,8 @@ jvm install 21
 | junction 创建 | 原生 `FSCTL_SET_REPARSE_POINT` (syscall) | 不调用 cmd.exe，无注入面 |
 | 当前终端生效 | 启动时自动注入 shell wrapper 函数 | 子进程改不了父 shell 环境，靠函数在会话内刷新 PATH |
 | PATH 注入 | 注册表 `HKCU\Environment` + 广播 WM_SETTINGCHANGE | 不用 setx（会截断长 PATH） |
-| 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退；Corretto/Microsoft/Zulu 直连各自官方 CDN；Liberica 走 download.bell-sw.com 官方 CDN | 国内快，且官方兜底 |
-| 发行版 | Temurin / Corretto / Microsoft / Azul Zulu / BellSoft Liberica | 纯 zip 解压，无需 msi installer |
+| 下载源 | Temurin 清华镜像优先 → 官方 CDN 回退；Corretto/Microsoft/Zulu/Liberica/GraalVM 直连各自官方 CDN；Temurin EA 直连 GitHub release 资产（镜像不同步） | 国内快，且官方兜底 |
+| 发行版 | Temurin / Corretto / Microsoft / Azul Zulu / BellSoft Liberica / Oracle GraalVM / Temurin EA | 纯 zip 解压，无需 msi installer |
 
 ## 构建
 
@@ -273,11 +299,12 @@ make dist-all GOARCH=arm64
 | `main.go` | 命令行入口和路由 |
 | `cmd/cmd.go` | 各子命令的实现 |
 | `internal/provider/` | Provider 抽象层（接口 + 注册表 + Base 基类 + Configurable 配置分发） |
-| `internal/provider/temurin/` | Temurin (Adoptium) 适配器：API + 清华镜像（x64 / aarch64） |
+| `internal/provider/temurin/` | Temurin (Adoptium) 适配器：API + 清华镜像（x64 / aarch64）；同包内含 `temurin-ea` 早期访问变体（EA 直连 GitHub 资产，无镜像） |
 | `internal/provider/corretto/` | Amazon Corretto 适配器：indexmap JSON（仅 x64，官方无 ARM64 构建） |
 | `internal/provider/microsoft/` | Microsoft Build of OpenJDK 适配器：aka.ms 探测（x64 / aarch64） |
 | `internal/provider/zulu/` | Azul Zulu 适配器：Metadata API 两步查询 + SHA256（x64 / aarch64） |
 | `internal/provider/liberica/` | BellSoft Liberica 适配器：Product Discovery API + SHA1（x64 / aarch64） |
+| `internal/provider/graalvm/` | Oracle GraalVM 适配器：CDN 顺序探测 + `.sha256` 旁路（仅 x64，LTS 21/25） |
 | `internal/jdk/` | 下载、完整性校验（SHA256/SHA1）、解压（原子替换） |
 | `internal/junction/` | junction 创建/删除/解析 (原生 syscall) |
 | `internal/env/` | 注册表读写、JAVA_HOME/PATH/jvm 自身 PATH 持久化 |
