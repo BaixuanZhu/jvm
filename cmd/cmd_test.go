@@ -50,6 +50,13 @@ func TestParseAvailableArgs(t *testing.T) {
 		{"-m negative", []string{"-m", "-1"}, AvailableOptions{}, true},
 		{"--major= empty", []string{"--major="}, AvailableOptions{}, true},
 
+		// -r / --refresh (可与 -a/-m/distro 组合)
+		{"short -r", []string{"-r"}, AvailableOptions{Refresh: true}, false},
+		{"long --refresh", []string{"--refresh"}, AvailableOptions{Refresh: true}, false},
+		{"-r + -a", []string{"-r", "-a"}, AvailableOptions{All: true, Refresh: true}, false},
+		{"-r + -m", []string{"-m", "17", "--refresh"}, AvailableOptions{Major: 17, Refresh: true}, false},
+		{"-r + distro", []string{"corretto", "-r"}, AvailableOptions{Distro: "corretto", Refresh: true}, false},
+
 		// 未识别 flag / 多余位置参数
 		{"unknown flag", []string{"-x"}, AvailableOptions{}, true},
 		{"unknown long flag", []string{"--foo"}, AvailableOptions{}, true},
@@ -108,14 +115,17 @@ func (fakeProvider) ListVersions(major int) ([]*app.Asset, error) {
 // TestAvailableTableConcurrent 验证 availableTable 的并发 (sync.WaitGroup + goroutine
 // 各写 rows[i]) 在 -race 下无数据竞争。此前这段并发逻辑零覆盖 (依赖真实 provider 网络,
 // 无法单测); 注入 fake provider 提供 mock 数据后可离线跑。
+// paths.Root 换到临时目录, availableTable 的缓存读写不落真实 ~/.jvm。
 func TestAvailableTableConcurrent(t *testing.T) {
+	withTempVersions(t)
 	name := "fake-cmd-table-" + t.Name()
 	provider.Register(fakeProvider{name: name})
-	availableTable(name) // 并发查 LatestPatch; -race 下无竞争报告即通过
+	availableTable(name, false) // 并发查 LatestPatch; -race 下无竞争报告即通过
 }
 
 // TestAvailableGroupsConcurrent 验证 availableGroups 的并发 (goroutine 各写 groups[i])。
 func TestAvailableGroupsConcurrent(t *testing.T) {
+	withTempVersions(t)
 	name := "fake-cmd-groups-" + t.Name()
 	provider.Register(fakeProvider{name: name})
 	availableGroups(AvailableOptions{All: true}, name)

@@ -222,9 +222,10 @@ type availableRow struct {
 
 // AvailableOptions 是 jvm available 的选项 (由 ParseAvailableArgs 解析)。
 type AvailableOptions struct {
-	Distro string // 可选: 指定发行版 (空 = 默认 temurin)
-	All    bool   // -a/--all: 列出每个大版本的全部子版本
-	Major  int    // -m/--major: 仅列出该大版本的全部子版本 (0 表示未指定)
+	Distro  string // 可选: 指定发行版 (如 corretto), 空 = 默认 temurin
+	All     bool   // -a/--all: 列出每个大版本的全部子版本
+	Major   int    // -m/--major: 仅列出该大版本的全部子版本 (0 表示未指定)
+	Refresh bool   // -r/--refresh: 绕过本地缓存强制直查 provider
 }
 
 // ParseAvailableArgs 解析 jvm available 的命令行参数。
@@ -234,6 +235,7 @@ type AvailableOptions struct {
 //	-a / --all              列出所有大版本的全部子版本
 //	-m <N> / --major <N>    仅列出大版本 N 的全部子版本
 //	--major=<N>             同上 (等号形式)
+//	-r / --refresh          绕过查询缓存, 强制直查各 provider
 //
 // -a 与 --major 互斥。distro 位置参数最多一个, 多余报错。
 // 纯函数, 便于表驱动测试。
@@ -271,8 +273,10 @@ func ParseAvailableArgs(args []string) (AvailableOptions, error) {
 				return opts, fmt.Errorf("无效的大版本号 %q: %w", val, err)
 			}
 			opts.Major = m
+		case arg == "-r" || arg == "--refresh":
+			opts.Refresh = true
 		case strings.HasPrefix(arg, "-"):
-			return opts, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -m <N> / --major <N>)", arg)
+			return opts, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -m <N> / --major <N> / -r / --refresh)", arg)
 		default:
 			// 位置参数: 第一个当 distro, 多余报错
 			if opts.Distro != "" {
@@ -293,9 +297,10 @@ type versionGroup struct {
 	failed   bool // 查询失败时为 true, versions 为空
 }
 
-// Available 处理 jvm available [distro] [-a | --major <N>]。
+// Available 处理 jvm available [distro] [-a | --major <N>] [-r]。
 // 无 flag 时以表格列出每个大版本的最新 GA; -a/--major 时按大版本分组列出全部子版本。
-// distro 位置参数指定发行版 (空 = 默认 temurin)。
+// distro 位置参数指定发行版 (空 = 默认 temurin)。查询结果经本地缓存加速
+// (见 available_cache.go), -r 强制刷新。
 func Available(opts AvailableOptions) {
 	distro := opts.Distro
 	if distro == "" {
@@ -305,14 +310,30 @@ func Available(opts AvailableOptions) {
 		availableGroups(opts, distro)
 		return
 	}
-	availableTable(distro)
+	availableTable(distro, opts.Refresh)
+}
+
+// printAvailableHints 打印表格形态的尾部安装提示 (直查与缓存命中路径共用)。
+func printAvailableHints(p provider.Provider) {
+	fmt.Println()
+	fmt.Printf("安装: jvm install %s@<大版本>      例如: jvm install %s@21\n", p.Name(), p.Name())
+	fmt.Printf("      jvm install %s@<完整版本号>  (从上表复制, 格式因发行版而异)\n", p.Name())
+	fmt.Printf("查看全部子版本: jvm available %s -a  或  jvm available %s --major 21\n", p.Name(), p.Name())
 }
 
 // availableTable 是默认的表格输出 (每个大版本最新 GA)。
-func availableTable(distro string) {
+func availableTable(distro string, refresh bool) {
 	p, err := provider.Get(distro)
 	if err != nil {
 		app.Fail(err.Error())
+	}
+	if !refresh {
+		if rows, ok := loadTableCache(distro); ok {
+			printAvailableTable(rows, p.DisplayName())
+			fmt.Println(cacheNoticeLine())
+			printAvailableHints(p)
+			return
+		}
 	}
 	fmt.Printf("🔍 正在查询 %s 可安装的大版本 (并发获取最新版本号)...\n", p.DisplayName())
 	releases, err := p.Available()
@@ -348,19 +369,44 @@ func availableTable(distro string) {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
 
+	// 全部成功才落缓存 (failed 行被 TTL 固化会让 ✗ 状态最长滞留一个周期)
+	if !rowsAnyFailed(rows) {
+		saveTableCache(distro, rows)
+	}
 	printAvailableTable(rows, p.DisplayName())
-	fmt.Println()
-	fmt.Printf("安装: jvm install %s@<大版本>      例如: jvm install %s@21\n", p.Name(), p.Name())
-	fmt.Printf("      jvm install %s@<完整版本号>  (从上表复制, 格式因发行版而异)\n", p.Name())
-	fmt.Printf("查看全部子版本: jvm available %s -a  或  jvm available %s --major 21\n", p.Name(), p.Name())
+	printAvailableHints(p)
+}
+
+// rowsAnyFailed 判断表格行里是否有查询失败的 major。
+func rowsAnyFailed(rows []availableRow) bool {
+	for _, r := range rows {
+		if r.failed {
+			return true
+		}
+	}
+	return false
 }
 
 // availableGroups 按 -a / --major 分组列出全部子版本。
+// 缓存策略: 分组条目按 distro@major 逐组存取。--major 单组直接查缓存;
+// -a 先打一次轻量的 Available 拿 majors 清单 (保证新发布的大版本不被缓存
+// 遮蔽), 逐组查缓存, 只并发重查 miss/过期的组 (ListVersions 全量列表是最重的
+// 一档查询, 增量复用收益最大), 成功的组回填缓存。
 func availableGroups(opts AvailableOptions, distro string) {
 	p, err := provider.Get(distro)
 	if err != nil {
 		app.Fail(err.Error())
 	}
+
+	// --major 单组: 缓存命中直接出 (跳过 Available 的存在性检查, TTL 内以缓存为准)
+	if !opts.Refresh && opts.Major > 0 {
+		if g, ok := loadGroupCache(distro, opts.Major); ok {
+			printAvailableGroups([]versionGroup{g}, p.DisplayName())
+			printGroupHints(p, cacheNoticeLine())
+			return
+		}
+	}
+
 	fmt.Printf("🔍 正在查询 %s 可安装的子版本 (可能稍慢)...\n", p.DisplayName())
 
 	// 取大版本列表 + LTS 标记 (单次 API; --major 场景也用它拿 LTS 标记)
@@ -389,29 +435,60 @@ func availableGroups(opts AvailableOptions, distro string) {
 	// 降序 (新版本在前)
 	sortIntsDesc(majors)
 
-	// 并发取每个大版本的全部子版本 (provider 自己负责拉全量, 不再有截断提示)
+	// 先逐组试缓存 (-a 的增量复用), 记下 miss 的组下标
 	groups := make([]versionGroup, len(majors))
-	var wg sync.WaitGroup
+	var missIdx []int
 	for i, m := range majors {
+		if !opts.Refresh {
+			if g, ok := loadGroupCache(distro, m); ok {
+				groups[i] = g
+				continue
+			}
+		}
+		groups[i] = versionGroup{major: m, lts: ltsOf[m]}
+		missIdx = append(missIdx, i)
+	}
+
+	// 并发取 miss 组的全部子版本 (provider 自己负责拉全量, 不再有截断提示)
+	var wg sync.WaitGroup
+	for _, i := range missIdx {
 		wg.Add(1)
-		go func(i, m int) {
+		go func(i int) {
 			defer wg.Done()
-			g := versionGroup{major: m, lts: ltsOf[m]}
-			if assets, e := p.ListVersions(m); e == nil {
+			if assets, e := p.ListVersions(groups[i].major); e == nil {
+				g := groups[i]
 				g.versions = make([]string, 0, len(assets))
 				for _, a := range assets {
 					g.versions = append(g.versions, a.ReleaseName)
 				}
+				groups[i] = g
 			} else {
-				g.failed = true
+				groups[i].failed = true
 			}
-			groups[i] = g
-		}(i, m)
+		}(i)
 	}
 	wg.Wait()
 
+	// 成功的组回填缓存 (failed 组不落盘); 全部命中缓存时附说明行
+	for _, g := range groups {
+		if !g.failed {
+			saveGroupCache(distro, g)
+		}
+	}
+	notice := ""
+	if len(missIdx) == 0 {
+		notice = cacheNoticeLine()
+	}
 	printAvailableGroups(groups, p.DisplayName())
+	printGroupHints(p, notice)
+}
+
+// printGroupHints 打印分组形态的尾部安装提示; notice 非空时先输出缓存说明行。
+func printGroupHints(p provider.Provider, notice string) {
 	fmt.Println()
+	if notice != "" {
+		fmt.Println(notice)
+	}
 	fmt.Printf("安装: jvm install %s@<版本号>  (从上方列表复制完整版本号)\n", p.Name())
 }
 

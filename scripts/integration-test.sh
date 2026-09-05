@@ -212,6 +212,17 @@ expect "提示先安装" "先安装"
 run "14. available: 查询可安装大版本 (真实 API)" available
 expect "available 打印大版本表" "可安装的大版本"
 
+# available 结果缓存: 14 刚查过并落缓存, 二次调用应命中 (⚡ 说明行);
+# --refresh 绕过缓存强制直查 (无 ⚡ 行, 重新打 API)。
+run "14a. available 二次调用命中缓存" available
+expect "available 缓存命中说明" "缓存结果"
+run "14b. available --refresh 强制直查" available --refresh
+if echo "$LAST_OUT" | grep -q "缓存结果"; then
+    echo "  ✗ --refresh 不应命中缓存" >&2
+    exit 1
+fi
+echo "  ✓ --refresh 绕过缓存"
+
 # CI 刚装的版本可能就是最新 patch, "可升级/均为最新"两种输出都合法, 只断言必然
 # 出现的表头与退出 0, 不断言具体分支 (防上游发新版导致用例抖动)。
 run "15. outdated: patch 升级检查" outdated

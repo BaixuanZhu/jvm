@@ -50,7 +50,8 @@ const completionEndMarker = "# <<< jvm completion <<<"
 //	init 与 completion 参数; install 限版本槽, zip 路径槽让给默认文件补全。
 //
 // v6: update 参数补全加 --all/-a 选项。
-const completionVersionToken = "# jvm-completion: v6"
+// v7: available 参数补全加 -r/--refresh 选项。
+const completionVersionToken = "# jvm-completion: v7"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。
@@ -121,7 +122,7 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
             }
         }
     } elseif ($cmd -eq 'available') {
-        $cands = @('-a','--all','-m','--major') + $_jvmDistros
+        $cands = @('-a','--all','-m','--major','-r','--refresh') + $_jvmDistros
         $cands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
@@ -230,7 +231,7 @@ _jvm() {
             fi
             ;;
         available)
-            COMPREPLY=($(compgen -W "-a --all -m --major $_jvm_distros" -- "$cur"))
+            COMPREPLY=($(compgen -W "-a --all -m --major -r --refresh $_jvm_distros" -- "$cur"))
             ;;
         exec)
             # Complete versions only before --; past it the user types the command to run.

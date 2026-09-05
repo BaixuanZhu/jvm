@@ -176,7 +176,8 @@ func usage() {
   pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)
   list                     列出本地已安装的版本
   cache [clean]            查看/清空下载缓存 (安装包留存, 卸载重装免重新下载)
-  available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本)
+  available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本;
+                           查询结果本地缓存 10 分钟, -r/--refresh 强制刷新)
   outdated                 检查已安装版本是否有新 patch 可升级
   update <[distro@]大版本> [-y]  升级该大版本到最新 patch: 装新 → 切换 → 清理旧版
                            (仅接受大版本号; 当前正在使用该组版本时自动切换, -y 跳过确认)
