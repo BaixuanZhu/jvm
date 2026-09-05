@@ -1,10 +1,13 @@
 // shell 包内补全相关: 为 PowerShell 和 bash 生成 Tab 补全脚本。
 //
 // 补全能力:
-//   - jvm <TAB>           子命令名
-//   - jvm install <TAB>   distro@ 前缀 (远程版本太慢不补)
-//   - jvm use <TAB>       本地已装版本 (读 ~/.jvm/versions, 零子进程)
-//   - jvm available <TAB> distro 名
+//   - jvm <TAB>                     子命令名
+//   - jvm install <TAB>             distro@ 前缀 (远程版本太慢不补; 第二参数 zip 路径走默认文件补全)
+//   - jvm use/pin/uninstall <TAB>   本地已装版本 (读 ~/.jvm/versions, 零子进程)
+//   - jvm exec <TAB>                本地已装版本 (仅 -- 之前的版本槽, 之后让位给命令补全)
+//   - jvm available <TAB>           distro 名 + -a/-m 选项
+//   - jvm doctor <TAB>              --fix/-y 选项
+//   - jvm init/completion <TAB>     powershell/bash 参数 + --install 选项
 //
 // 设计要点:
 //   - 补全用独立的 profile 标记块 (completionMarker), 与 shell 集成块分离,
@@ -41,7 +44,11 @@ const completionEndMarker = "# <<< jvm completion <<<"
 // v4: 发行版列表新增 temurin-ea; 本地版本目录反转改最长前缀匹配
 //
 //	(temurin-ea-* 不再被短名 temurin 抢匹配)。
-const completionVersionToken = "# jvm-completion: v4"
+//
+// v5: 补全覆盖扩展: exec 版本参数 (-- 前) / available 与 doctor 选项 /
+//
+//	init 与 completion 参数; install 限版本槽, zip 路径槽让给默认文件补全。
+const completionVersionToken = "# jvm-completion: v5"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。
@@ -102,17 +109,34 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
         return
     }
     $cmd = $elements[1].Extent.Text
+    # Completing the first argument slot? Later slots (install's zip path) fall back to file completion.
+    $completingArg1 = ($elements.Count -eq 2) -or ($elements[2].Extent.Text -eq $wordToComplete)
     if ($cmd -eq 'install') {
-        $_jvmDistros | ForEach-Object { "$_@" } | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        # Only the version slot gets distro@ prefixes; the zip path slot uses default file completion.
+        if ($completingArg1) {
+            $_jvmDistros | ForEach-Object { "$_@" } | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
         }
     } elseif ($cmd -eq 'available') {
-        $_jvmDistros | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        $cands = @('-a','--all','-m','--major') + $_jvmDistros
+        $cands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     } elseif ($cmd -in @('use','pin','uninstall','rm')) {
         _jvmLocalVersions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+    } elseif ($cmd -eq 'exec') {
+        # Complete versions only before --; past it the user types the command to run.
+        $pastSep = $false
+        foreach ($e in $elements) {
+            if ($e.Extent.Text -eq '--') { $pastSep = $true; break }
+        }
+        if (-not $pastSep) {
+            _jvmLocalVersions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
         }
     } elseif ($cmd -eq 'update') {
         # update only accepts major versions: trim local versions to distro@major, dedup
@@ -125,6 +149,20 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
     } elseif ($cmd -eq 'cache') {
         'clean' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+    } elseif ($cmd -eq 'doctor') {
+        '--fix','-f','-y','--yes' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+    } elseif ($cmd -in @('init','completion')) {
+        if ($completingArg1) {
+            'powershell','bash' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        } else {
+            '--install','-i' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
         }
     }
 }
@@ -175,14 +213,40 @@ _jvm() {
         return 0
     fi
     cmd="${COMP_WORDS[1]}"
+    # First argument slot? Later slots (install's zip path) fall back to file completion.
+    local arg1=0
+    [ "$COMP_CWORD" -eq 2 ] && arg1=1
     case "$cmd" in
         install)
-            local distros="" d
-            for d in $_jvm_distros; do distros="$distros ${d}@"; done
-            COMPREPLY=($(compgen -W "$distros" -- "$cur"))
+            # Only the version slot gets distro@ prefixes; the zip path slot uses file completion.
+            if [ "$arg1" -eq 1 ]; then
+                local distros="" d
+                for d in $_jvm_distros; do distros="$distros ${d}@"; done
+                COMPREPLY=($(compgen -W "$distros" -- "$cur"))
+            fi
             ;;
         available)
-            COMPREPLY=($(compgen -W "$_jvm_distros" -- "$cur"))
+            COMPREPLY=($(compgen -W "-a --all -m --major $_jvm_distros" -- "$cur"))
+            ;;
+        exec)
+            # Complete versions only before --; past it the user types the command to run.
+            local i past_sep=0
+            for ((i=2; i<COMP_CWORD; i++)); do
+                [ "${COMP_WORDS[i]}" = "--" ] && { past_sep=1; break; }
+            done
+            if [ "$past_sep" -eq 0 ]; then
+                COMPREPLY=($(compgen -W "$(_jvm_local_versions)" -- "$cur"))
+            fi
+            ;;
+        doctor)
+            COMPREPLY=($(compgen -W "--fix -f -y --yes" -- "$cur"))
+            ;;
+        init|completion)
+            if [ "$arg1" -eq 1 ]; then
+                COMPREPLY=($(compgen -W "powershell bash" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "--install -i" -- "$cur"))
+            fi
             ;;
         use|pin|uninstall|rm)
             COMPREPLY=($(compgen -W "$(_jvm_local_versions)" -- "$cur"))

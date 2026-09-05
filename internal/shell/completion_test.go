@@ -36,6 +36,12 @@ func TestPsCompletionScript(t *testing.T) {
 		{"含子命令 cache", "'cache'"},
 		{"update 参数补全分支", "-eq 'update'"},
 		{"cache 参数补全分支", "-eq 'cache'"},
+		{"exec 参数补全分支", "-eq 'exec'"},
+		{"exec -- 分隔守卫", "if ($e.Extent.Text -eq '--')"},
+		{"available 选项补全", "@('-a','--all','-m','--major')"},
+		{"doctor 选项补全分支", "-eq 'doctor'"},
+		{"init/completion 参数补全分支", "@('init','completion')"},
+		{"install 限版本槽 (zip 槽走文件补全)", "$completingArg1"},
 		{"最长前缀匹配 (temurin-ea 不被 temurin 抢)", "$prefix.Length -gt $best.Length"},
 	}
 	for _, c := range checks {
@@ -71,6 +77,13 @@ func TestBashCompletionScript(t *testing.T) {
 		{"含子命令 home", " home "},
 		{"含子命令 cache", " cache "},
 		{"cache 参数分支", "cache)"},
+		{"exec 分支", "exec)"},
+		{"exec -- 分隔守卫", "past_sep=1; break; }"},
+		{"available 选项补全", "-a --all -m --major"},
+		{"doctor 分支", "doctor)"},
+		{"init/completion 分支", "init|completion)"},
+		{"shell 参数补全", "powershell bash"},
+		{"install 限版本槽 (zip 槽走文件补全)", "arg1"},
 		{"use 分支", "use|pin|uninstall|rm)"},
 		{"最长前缀匹配 (temurin-ea 不被 temurin 抢)", "[ \"${#prefix}\" -gt \"${#best}\" ]"},
 	}

@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### 新增
+
+- Tab 补全覆盖扩展：`jvm exec` 补本地已装版本（仅 `--` 之前的版本槽，之后让位
+  给要执行的命令）；`available` 补 `-a` / `-m` 选项；`doctor` 补 `--fix` / `-y`；
+  `init` / `completion` 补 `powershell` / `bash` 参数与 `--install`。`install`
+  仅在版本槽补 `distro@` 前缀，本地 zip 路径槽让给 shell 默认文件补全。
+  补全块 token 递增至 v5，升级后首次启动自动刷新老 profile 块。
+
 ## [0.13.0] - 2026-09-05
 
 ### 新增
