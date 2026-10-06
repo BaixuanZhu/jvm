@@ -353,6 +353,39 @@ expect_silent "无输出 (state 已被显式 use 清掉)"
 run "27. current 验证未被误恢复" current
 expect "current 仍为 corretto" "corretto"
 
+# --- rc 生态兼容: .sdkmanrc / .tool-versions / .java-version ---
+# 前置: current=corretto-21 (步骤 27 断言)。已装 temurin/corretto/... 的 21 组。
+# sdkman/asdf 生态的版本号普遍不含 build 号, 验证半截版本降级到大版本组内最新。
+PROJ_COMPAT="$(mktemp -d)"
+
+printf 'java=21.0.2-tem\n' > "$PROJ_COMPAT/.sdkmanrc"
+run_in "$PROJ_COMPAT" "27a. use 无参: 读 .sdkmanrc (sdkman 兼容)" use
+expect "读到 sdkmanrc 内容" ".sdkmanrc"
+expect "半截版本按 spec 透传" "temurin@21.0.2"
+expect "已切换" "已切换"
+
+rm -f "$PROJ_COMPAT/.sdkmanrc"
+printf 'nodejs 20.11.0\njava corretto-21\npython 3.12\n' > "$PROJ_COMPAT/.tool-versions"
+run_in "$PROJ_COMPAT" "27b. exec 无参: 读 .tool-versions (asdf/mise 兼容)" exec -- cmd //c echo %JAVA_HOME%
+expect "exec 解析到 corretto (asdf 前缀)" "corretto"
+
+rm -f "$PROJ_COMPAT/.tool-versions"
+run "27c. 显式切回 corretto (为 .java-version 降级切换做准备)" use corretto@21
+expect "已切换" "已切换"
+printf '21.0.99\n' > "$PROJ_COMPAT/.java-version"
+run_in "$PROJ_COMPAT" "27d. use --auto: .java-version 半截版本降级切换" use --auto
+expect "自动切到 temurin 组最新" "切换到 temurin"
+
+run_in "$NO_RC" "27e. use --auto: 离开恢复 (state 由 27d 产生)" use --auto
+expect "恢复到 corretto" "恢复 corretto"
+
+printf 'zulu@21\n' > "$PROJ_COMPAT/.jvmrc"
+run_in "$PROJ_COMPAT" "27f. 同层 .jvmrc 优先于 .java-version" use
+expect "读到 .jvmrc 而非 .java-version" ".jvmrc"
+expect "按 .jvmrc 切到 zulu" "zulu"
+
+rm -f "$PROJ_COMPAT/.jvmrc" "$PROJ_COMPAT/.java-version"
+
 # --- doctor --fix: junction 重建闭环 ---
 # 用 cmd /c rmdir 删 junction (只删链接本身); 不能用 rm —— MSYS rm 会穿透
 # junction 递归删除目标内容, 那是真实 JDK 目录。cygpath 归一成纯反斜杠路径,
@@ -408,6 +441,30 @@ echo "  ✓ 半成品目录已删除"
 
 run "34. uninstall temurin@21 -y" uninstall temurin@21 -y
 expect "uninstall 成功" "已卸载"
+
+# --- uninstall 增强: 删在用版本自动回退 + --all 组批量 ---
+# 前置: 已装 corretto/microsoft/zulu/liberica/graalvm 的 21 组 (temurin@21 已卸)。
+run "34a. use microsoft@21 (设为删除目标)" use microsoft@21
+expect "已切换" "已切换"
+run "34b. uninstall 在用版本: 自动回退不悬空" uninstall microsoft@21 -y
+expect "已卸载" "已卸载"
+expect "回退到剩余最新" "已回退到剩余最新版本"
+run "34c. current 验证回退后可用" current
+expect "回退后有当前版本" "当前版本"
+
+run "34d. use zulu@21 (组批量删除目标)" use zulu@21
+expect "已切换" "已切换"
+run "34e. uninstall --all: 删整组 + 在用回退" uninstall zulu@21 --all -y
+expect "计划标注在用" "当前正在使用"
+expect "整组卸载" "已卸载 zulu@21 全部"
+expect "回退到剩余最新" "已回退到剩余最新版本"
+run "34f. current 验证 --all 回退后可用" current
+expect "回退后有当前版本" "当前版本"
+
+run_fail "34g. uninstall --all 组已空" uninstall zulu@21 --all -y
+expect "提示组不存在" "没有安装"
+run_fail "34h. uninstall --all 拒绝完整版本号" uninstall zulu@21.0.1 --all
+expect "提示只接受大版本号" "--all 只接受大版本号"
 
 # ARM64 下载链路: amd64 runner 只验证到 install/校验/解压, 不跑 java -version
 # (aarch64 二进制在 amd64 跑不了)。用 microsoft@17 避开上面 x64 已装的版本撞名。

@@ -81,22 +81,30 @@ func installFromZip(versionArg, zipPath string) {
 }
 
 // Use 处理 jvm use <[distro@]版本号>
-// 无参数时从当前目录向上查找 .jvmrc, 用其中指定的版本 (显式参数优先)。
+// 无参数时从当前目录向上查找版本固定文件 (.jvmrc, 兼容 .java-version /
+// .tool-versions / .sdkmanrc, 见 internal/pinrc), 用其中指定的版本
+// (显式参数优先; 外来格式走宽松版本匹配, 见 rc.go)。
 func Use(arg string) {
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
 	}
 
-	// 无参数: 读 .jvmrc (从当前目录向上查找)
+	// 无参数: 读版本固定文件 (从当前目录向上查找)
+	loose := false
 	if arg == "" {
-		arg = versionFromPinrc()
+		arg, loose = versionFromPinrc()
 	}
 
 	spec, err := app.ParseVersionSpec(arg)
 	if err != nil {
 		app.Fail(err.Error())
 	}
-	dir, err := junction.ResolveVersion(spec.Distro, spec.Version)
+	var dir string
+	if loose {
+		dir, err = resolveVersionLoose(spec)
+	} else {
+		dir, err = junction.ResolveVersion(spec.Distro, spec.Version)
+	}
 	if err != nil {
 		app.Fail(err.Error())
 	}
@@ -118,25 +126,6 @@ func Use(arg string) {
 	fmt.Println("   集成了 shell 函数的终端 (PowerShell / Git Bash):")
 	fmt.Println("   java -version 现在就是新版本。")
 	fmt.Println("   未集成或老终端: 新开一个窗口即可。")
-}
-
-// versionFromPinrc 从当前目录向上查找 .jvmrc 并解析出版本号, 供 Use 无参数时调用。
-// 找不到或解析失败时直接 Fail 并给出友好提示。
-func versionFromPinrc() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		app.Fail("获取当前目录失败: " + err.Error())
-	}
-	content, foundPath, found := pinrc.FindUp(cwd)
-	if !found {
-		app.Fail("用法: jvm use <[distro@]版本号>\n  或在当前目录 (或上层) 创建 .jvmrc: 运行 jvm pin <版本号>")
-	}
-	spec, err := pinrc.Parse(content)
-	if err != nil {
-		app.Fail(foundPath + ": " + err.Error())
-	}
-	fmt.Printf("📌 读取 %s: %s\n", foundPath, spec)
-	return spec
 }
 
 // Pin 处理 jvm pin [版本号]: 把版本号写入当前目录的 .jvmrc。
@@ -678,27 +667,14 @@ func confirm(prompt string) bool {
 	return ans == "y" || ans == "yes"
 }
 
-// Uninstall 处理 jvm uninstall <版本号> [-y|--yes]
-// 默认会在删除前要求确认, 加 -y/--yes 可跳过 (便于脚本调用)。
+// Uninstall 处理 jvm uninstall <[distro@]版本号> [-a|--all] [-y|--yes]。
+// 默认在删除前要求确认, 加 -y/--yes 可跳过 (便于脚本调用)。
+// 删除正在使用的版本后自动回退到剩余最新已装版本 (current 不再悬空)。
+// --all: 版本参数须为大版本号, 删除该 (发行版, 大版本) 组的全部已装版本。
 func Uninstall(args []string) {
-	if len(args) == 0 {
-		app.Fail("用法: jvm uninstall <版本号> [-y|--yes]")
-	}
-
-	assumeYes := false
-	var versionArg string
-	for _, a := range args {
-		switch a {
-		case "-y", "--yes":
-			assumeYes = true
-		default:
-			if versionArg == "" {
-				versionArg = a
-			}
-		}
-	}
-	if versionArg == "" {
-		app.Fail("用法: jvm uninstall <[distro@]版本号> [-y|--yes]")
+	versionArg, all, assumeYes, err := parseUninstallArgs(args)
+	if err != nil {
+		app.Fail(err.Error())
 	}
 
 	if err := paths.EnsureDirs(); err != nil {
@@ -708,6 +684,16 @@ func Uninstall(args []string) {
 	if err != nil {
 		app.Fail(err.Error())
 	}
+	if all {
+		major, err := app.ParseMajorVersion(spec.Version)
+		if err != nil {
+			app.Fail("--all 只接受大版本号 (例如: jvm uninstall temurin@21 --all)\n" +
+				"  卸载单个版本请去掉 --all")
+		}
+		uninstallGroup(spec.Distro, major, assumeYes)
+		return
+	}
+
 	dir, err := junction.ResolveVersion(spec.Distro, spec.Version)
 	if err != nil {
 		app.Fail(err.Error())
@@ -721,8 +707,9 @@ func Uninstall(args []string) {
 		}
 	}
 
-	// 如果正在用这个版本, 先解除 current
-	if t := junction.ReadTarget(); t != "" && filepath.Base(t) == dir {
+	// 如果正在用这个版本, 先解除 current (删除后由 fallbackAfterRemoval 回退)
+	wasCurrent := currentDir() == dir
+	if wasCurrent {
 		fmt.Printf("⚠️  当前正在使用 %s, 先解除 current 链接...\n", dir)
 		if err := junction.Remove(paths.CurrentLink); err != nil {
 			app.Fail("解除 current 失败: " + err.Error())
@@ -735,6 +722,123 @@ func Uninstall(args []string) {
 		app.Fail("删除失败: " + err.Error())
 	}
 	fmt.Printf("✅ 已卸载 %s\n", dir)
+	if wasCurrent {
+		fallbackAfterRemoval()
+	}
+}
+
+// parseUninstallArgs 解析 jvm uninstall 的命令行参数:
+//
+//	[distro@]版本   位置参数: 要卸载的版本 (--all 时须为大版本号)
+//	-a / --all      卸载该 distro@大版本 组的全部已装版本
+//	-y / --yes      跳过删除确认
+//
+// 位置参数必需, 多余位置参数或未知选项报错。纯函数, 便于表驱动测试。
+func parseUninstallArgs(args []string) (versionArg string, all, assumeYes bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "-y", "--yes":
+			assumeYes = true
+		case "--all", "-a":
+			all = true
+		default:
+			if strings.HasPrefix(a, "-") {
+				return "", false, false, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -y / --yes)", a)
+			}
+			if versionArg != "" {
+				return "", false, false, fmt.Errorf("未识别的参数: %s (uninstall 最多接受一个版本参数)", a)
+			}
+			versionArg = a
+		}
+	}
+	if versionArg == "" {
+		return "", false, false, fmt.Errorf("用法: jvm uninstall <[distro@]版本号> [-a|--all] [-y|--yes]")
+	}
+	return versionArg, all, assumeYes, nil
+}
+
+// uninstallGroup 删除 (发行版, 大版本) 组的全部已装版本目录 (uninstall --all):
+// 打印删除计划 (标注在用版本) → 一次确认 → 逐目录删除 (单个失败不阻断,
+// Windows 进程占用场景) → 在用版本被删后回退。存在删除失败时以非零码退出
+// (与 update --all 的汇总模式一致)。
+func uninstallGroup(distro string, major int, assumeYes bool) {
+	names, _ := junction.ListLocal()
+	var dirs []string
+	for _, n := range names {
+		if d, _ := junction.SplitDistro(n); d == distro && junction.MajorOf(n) == major {
+			dirs = append(dirs, n)
+		}
+	}
+	if len(dirs) == 0 {
+		app.Fail(fmt.Sprintf("没有安装 %s@%d 的任何版本。运行 jvm list 查看已安装版本", distro, major))
+	}
+
+	current := currentDir()
+	wasCurrent := false
+	fmt.Printf("将删除 %s@%d 组的全部 %d 个版本:\n", distro, major, len(dirs))
+	for _, d := range dirs {
+		if d == current {
+			wasCurrent = true
+			fmt.Printf("  删除  %s  (当前正在使用, 删除后自动回退)\n", d)
+		} else {
+			fmt.Printf("  删除  %s\n", d)
+		}
+	}
+	if !assumeYes && !confirm("确定删除以上全部? [y/N] ") {
+		fmt.Println("已取消。")
+		return
+	}
+
+	if wasCurrent {
+		if err := junction.Remove(paths.CurrentLink); err != nil {
+			app.Fail("解除 current 失败: " + err.Error())
+		}
+	}
+
+	var failed []string
+	for _, d := range dirs {
+		fmt.Printf("🗑️  正在删除 %s ...\n", d)
+		if err := os.RemoveAll(filepath.Join(paths.VersionsDir, d)); err != nil {
+			fmt.Printf("⚠️  删除 %s 失败 (可能被进程占用)\n", d)
+			failed = append(failed, d)
+		}
+	}
+	if wasCurrent {
+		fallbackAfterRemoval()
+	}
+
+	if len(failed) > 0 {
+		fmt.Printf("⚠️  %d 个版本未能删除, 可稍后重试 (jvm uninstall %s@%d --all)\n", len(failed), distro, major)
+		os.Exit(1)
+	}
+	fmt.Printf("✅ 已卸载 %s@%d 全部 %d 个版本\n", distro, major, len(dirs))
+}
+
+// fallbackAfterRemoval 在删除了 current 指向的版本目录后调用: 重新枚举剩余
+// 已装版本, 切换到语义最新的那个 (与 doctor --fix 重建 current 的选择一致),
+// 避免删完在用版本后 java 直接不可用。无剩余版本时保持解除并提示。
+// 自动切换的待恢复基线 (auto-state) 若指向已不存在的目录, 恢复无意义, 一并清掉。
+func fallbackAfterRemoval() {
+	names, _ := junction.ListLocal()
+	if len(names) == 0 {
+		fmt.Println("(已无已装版本, current 保持解除, 运行 jvm install <版本号> 重装)")
+		return
+	}
+	target := names[0] // ListLocal 降序, 首个即全局语义最新
+	if err := switchTo(filepath.Join(paths.VersionsDir, target)); err != nil {
+		fmt.Printf("⚠️  回退失败: %v (可手动 jvm use 选择其他版本)\n", err)
+		return
+	}
+	fmt.Printf("↩️  已回退到剩余最新版本 %s\n", junction.DisplayName(target))
+
+	if s := readAutoState(); s != "" {
+		for _, n := range names {
+			if n == s {
+				return // 基线仍有效 (本次删除没动它), 保留待恢复状态
+			}
+		}
+		clearAutoState()
+	}
 }
 
 // Home 处理 jvm home: 打印当前 JAVA_HOME 的值 (~/.jvm/current, 单行无装饰)。

@@ -48,11 +48,11 @@ func UseAuto(enabled bool) {
 		return
 	}
 
-	// 解析 .jvmrc 要求的本地版本目录名; 失败留给 decideAuto 走警告分支
-	content, foundPath, found := pinrc.FindUp(cwd)
+	// 解析版本固定文件要求的本地版本目录名; 失败留给 decideAuto 走警告分支
+	spec, src, foundPath, found := pinrc.FindUp(cwd)
 	rcDir, warn := "", ""
 	if found {
-		rcDir, warn = resolveRcVersion(content, foundPath)
+		rcDir, warn = resolveRcVersion(spec, src, foundPath)
 	}
 
 	state := readAutoState()
@@ -62,7 +62,7 @@ func UseAuto(enabled bool) {
 	case autoWarn:
 		fmt.Printf("⚠️  %s\n", warn)
 	case autoSwitch:
-		// 第一次自动切换前记住手动版本, 供离开 .jvmrc 目录时恢复
+		// 第一次自动切换前记住手动版本, 供离开版本固定目录时恢复
 		if state == "" {
 			if cur := currentDirName(); cur != "" {
 				if err := writeAutoState(cur); err != nil {
@@ -70,27 +70,29 @@ func UseAuto(enabled bool) {
 				}
 			}
 		}
-		switchQuietly(target, "📌 .jvmrc: 切换到 "+junction.DisplayName(target))
+		switchQuietly(target, "📌 "+filepath.Base(foundPath)+": 切换到 "+junction.DisplayName(target))
 	case autoRevert:
-		switchQuietly(target, "📌 离开 .jvmrc 目录: 恢复 "+junction.DisplayName(target))
+		switchQuietly(target, "📌 离开版本固定目录: 恢复 "+junction.DisplayName(target))
 		clearAutoState()
 	}
 }
 
-// resolveRcVersion 把 .jvmrc 内容解析到本地版本目录名。
-// 失败时返回空目录名和一行警告文案 (含原因与建议)。
-func resolveRcVersion(content, foundPath string) (dir, warn string) {
-	spec, err := pinrc.Parse(content)
-	if err != nil {
-		return "", foundPath + ": " + err.Error()
-	}
+// resolveRcVersion 把版本固定文件的 spec (pinrc.FindUp 归一化产物) 解析到
+// 本地版本目录名。外来格式 (src != SrcJVMRC) 走宽松匹配 (半截版本号降级
+// 大版本, 见 rc.go)。失败时返回空目录名和一行警告文案 (含原因与建议)。
+func resolveRcVersion(spec string, src pinrc.Source, foundPath string) (dir, warn string) {
 	vs, err := app.ParseVersionSpec(spec)
 	if err != nil {
 		return "", foundPath + ": " + err.Error()
 	}
-	dir, err = junction.ResolveVersion(vs.Distro, vs.Version)
+	if src == pinrc.SrcJVMRC {
+		dir, err = junction.ResolveVersion(vs.Distro, vs.Version)
+	} else {
+		dir, err = resolveVersionLoose(vs)
+	}
 	if err != nil {
-		return "", fmt.Sprintf(".jvmrc 要求 %s, 未安装。运行 jvm install %s", spec, spec)
+		name := filepath.Base(foundPath)
+		return "", fmt.Sprintf("%s 要求 %s, 未安装。运行 jvm install %s", name, spec, spec)
 	}
 	return dir, ""
 }

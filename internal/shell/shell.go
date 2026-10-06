@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"jvm/internal/app"
+	"jvm/internal/pinrc"
 
 	"golang.org/x/sys/windows"
 )
@@ -25,7 +26,10 @@ const profileMarker = "# >>> jvm shell init >>>"
 // integrationVersionToken 是集成块的版本标记 (嵌在块内)。
 // 幂等检测对集成块额外比较此 token: 老块没有 token (或 token 过期) 时自动重写,
 // 保证升级 jvm 后老用户能拿到新钩子。改集成脚本内容时同步递增此 token。
-const integrationVersionToken = "# jvm-integration: v2"
+// v3: rc 检测从单一 .jvmrc 扩展为多候选 (.jvmrc/.java-version/.tool-versions/
+// .sdkmanrc, 与 pinrc.CandidateFiles 同源), 缓存 key 从 rc 所在目录改为命中的
+// rc 文件完整路径。
+const integrationVersionToken = "# jvm-integration: v3"
 
 // EnsureIntegration 静默确保 shell 集成与 Tab 补全已安装到 PowerShell 和 bash 的 profile。
 // 幂等 (已是当前版本跳过)、静默 (正常无输出)、容错 (失败不中断)。
@@ -273,13 +277,16 @@ func profileHasIntegration(profilePath string) bool {
 }
 
 // psScript 返回 PowerShell 集成脚本, exePath 硬编码进脚本使函数不依赖 PATH。
-// v2 起含 .jvmrc 自动切换: 包装 prompt 函数, cwd 变化时向上找 .jvmrc,
-// 找到的 rc 目录变化时调 `jvm use --auto` (走上面的 wrapper, 会话 env 自动刷新)。
-// 双层缓存 (上次目录 / 上次 rc) 保证 exe 只在真正变化时才被拉起。
+// v2 起含 .jvmrc 自动切换; v3 起兼容多候选 rc 文件 (检测清单由 pinrc.CandidateFiles
+// 注入, 与 Go 侧 pinrc.FindUp 单一事实源): 包装 prompt 函数, cwd 变化时向上找
+// rc 文件 (每层按优先级取第一个存在的), 命中的 rc 文件变化时调
+// `jvm use --auto` (走上面的 wrapper, 会话 env 自动刷新)。双层缓存 (上次目录 /
+// 上次命中的 rc 文件) 保证 exe 只在真正变化时才被拉起。
 // 脚本保持纯 ASCII (PS 5.1 在中文系统上按 GBK 解码非 ASCII 字节会损坏语法)。
 func psScript(exePath string) string {
+	cands := strings.Join(pinrc.CandidateFiles, "','")
 	return profileMarker + `
-# jvm-integration: v2
+# jvm-integration: v3
 # jvm shell integration: make ` + "`jvm use`" + ` take effect in the current terminal
 function jvm {
     & '` + exePath + `' @args
@@ -291,7 +298,8 @@ function jvm {
         $env:PATH = "$bin;$env:PATH"
     }
 }
-# auto-switch: when the .jvmrc found upward from cwd changes, run ` + "`jvm use --auto`" + `
+# auto-switch: when the rc file (.jvmrc/.java-version/.tool-versions/.sdkmanrc)
+# found upward from cwd changes, run ` + "`jvm use --auto`" + `
 $global:__jvm_last_dir = $null
 $global:__jvm_last_rc = $null
 $global:__jvm_orig_prompt = $function:prompt
@@ -301,8 +309,13 @@ function global:prompt {
             $global:__jvm_last_dir = $PWD.Path
             $d = $PWD.Path
             $rc = $null
+            $cands = @('` + cands + `')
             while ($true) {
-                if (Test-Path -LiteralPath (Join-Path $d '.jvmrc') -PathType Leaf) { $rc = $d; break }
+                foreach ($f in $cands) {
+                    $p = Join-Path $d $f
+                    if (Test-Path -LiteralPath $p -PathType Leaf) { $rc = $p; break }
+                }
+                if ($rc) { break }
                 $parent = Split-Path $d -ErrorAction SilentlyContinue
                 if (-not $parent -or $parent -eq $d) { break }
                 $d = $parent
@@ -320,13 +333,17 @@ function global:prompt {
 }
 
 // bashScript 返回 bash 集成脚本, exePath 硬编码 (转 MSYS 路径)。
-// v2 起含 .jvmrc 自动切换: PROMPT_COMMAND 钩子 (前插, case 守卫防重复追加,
-// 不覆盖 git-prompt 等已有钩子), cwd 变化时向上找 .jvmrc, rc 变化时调
-// `jvm use --auto` (走上面的 wrapper, 会话 env 自动刷新)。纯 ASCII。
+// v2 起含 .jvmrc 自动切换; v3 起兼容多候选 rc 文件 (检测清单由
+// pinrc.CandidateFiles 注入, 与 Go 侧 pinrc.FindUp 单一事实源):
+// PROMPT_COMMAND 钩子 (前插, case 守卫防重复追加, 不覆盖 git-prompt 等
+// 已有钩子), cwd 变化时向上找 rc 文件 (每层按优先级取第一个存在的),
+// 命中的 rc 文件变化时调 `jvm use --auto` (走上面的 wrapper, 会话 env
+// 自动刷新)。纯 ASCII。
 func bashScript(exePath string) string {
 	bashPath := toMSYSPath(exePath)
+	cands := strings.Join(pinrc.CandidateFiles, " ")
 	return profileMarker + `
-# jvm-integration: v2
+# jvm-integration: v3
 # jvm shell integration: make ` + "`jvm use`" + ` take effect in the current terminal
 jvm() {
     command "` + bashPath + `" "$@"
@@ -336,13 +353,17 @@ jvm() {
         export PATH="$bin:$(echo "$PATH" | tr ':' '\n' | grep -v "^${bin}$" | tr '\n' ':' | sed 's/:$//')"
     fi
 }
-# auto-switch: when the .jvmrc found upward from cwd changes, run ` + "`jvm use --auto`" + `
+# auto-switch: when the rc file (.jvmrc/.java-version/.tool-versions/.sdkmanrc)
+# found upward from cwd changes, run ` + "`jvm use --auto`" + `
 __jvm_autoswitch() {
     [ "${__jvm_last_dir:-}" = "$PWD" ] && return 0
     __jvm_last_dir="$PWD"
-    local d="$PWD" rc=""
+    local d="$PWD" rc="" f
+    local cands="` + cands + `"
     while [ "$d" != "/" ]; do
-        if [ -f "$d/.jvmrc" ]; then rc="$d"; break; fi
+        for f in $cands; do
+            if [ -f "$d/$f" ]; then rc="$d/$f"; break 2; fi
+        done
         d=$(dirname "$d")
     done
     if [ "$rc" != "${__jvm_last_rc:-}" ]; then

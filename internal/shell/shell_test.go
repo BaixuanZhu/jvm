@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"jvm/internal/pinrc"
 )
 
 func TestToMSYSPath(t *testing.T) {
@@ -136,7 +138,7 @@ func TestEndMarkerFor(t *testing.T) {
 	}
 }
 
-// === v2: .jvmrc 自动切换钩子 + 集成块版本化 ===
+// === v2: .jvmrc 自动切换钩子 + 集成块版本化 (v3 起扩展多候选 rc 文件) ===
 
 // TestPsScriptAutoHook 验证 PowerShell 集成脚本含自动切换钩子的关键构件。
 func TestPsScriptAutoHook(t *testing.T) {
@@ -144,14 +146,20 @@ func TestPsScriptAutoHook(t *testing.T) {
 	for _, want := range []string{
 		integrationVersionToken,
 		"function global:prompt", // 包装 prompt (每次提示符前触发)
-		"$global:__jvm_last_dir", // 目录缓存: 目录没变不找 .jvmrc
-		"$global:__jvm_last_rc",  // rc 缓存: rc 没变不拉起 exe
+		"$global:__jvm_last_dir", // 目录缓存: 目录没变不找 rc 文件
+		"$global:__jvm_last_rc",  // rc 缓存: 命中的 rc 文件没变不拉起 exe
 		"jvm use --auto",         // 走 wrapper 函数, 会话 env 自动刷新
-		"Test-Path -LiteralPath", // 逐级向上找 .jvmrc
+		"Test-Path -LiteralPath", // 逐级向上检测 rc 文件
 		"try {",                  // 容错: 钩子失败绝不破坏 prompt
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("psScript 缺少 %q", want)
+		}
+	}
+	// v3: rc 检测清单与 pinrc.CandidateFiles 同源注入
+	for _, f := range pinrc.CandidateFiles {
+		if !strings.Contains(s, f) {
+			t.Errorf("psScript 的 rc 候选清单缺少 %q", f)
 		}
 	}
 }
@@ -166,9 +174,16 @@ func TestBashScriptAutoHook(t *testing.T) {
 		"jvm use --auto",
 		"${__jvm_last_dir:-}",       // 缓存 + set -u 安全
 		"*\";__jvm_autoswitch;\"*)", // case 守卫防重复追加
+		"break 2",                   // 命中候选后跳出双层循环
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("bashScript 缺少 %q", want)
+		}
+	}
+	// v3: rc 检测清单与 pinrc.CandidateFiles 同源注入
+	for _, f := range pinrc.CandidateFiles {
+		if !strings.Contains(s, f) {
+			t.Errorf("bashScript 的 rc 候选清单缺少 %q", f)
 		}
 	}
 }

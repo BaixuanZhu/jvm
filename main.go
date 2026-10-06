@@ -182,7 +182,9 @@ func usage() {
   update <[distro@]大版本> [-y]  升级该大版本到最新 patch: 装新 → 切换 → 清理旧版
                            (仅接受大版本号; 当前正在使用该组版本时自动切换, -y 跳过确认)
   update --all [-y]            升级全部落后版本组 (一次确认; 某组失败不阻断其余)
-  uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过)
+  uninstall <[distro@]版本> 卸载指定版本 (默认需确认, 加 -y 跳过; 删除在用版本后
+                           自动回退到剩余最新已装版本)
+  uninstall <distro@大版本> --all  卸载该大版本组的全部已装 patch (一次确认批量删)
   current                  显示当前正在使用的版本
   home                     打印当前 JAVA_HOME 路径 (~/.jvm/current, 供脚本/IDE 引用)
   exec <版本> -- <命令>    用指定版本执行命令, 不动全局 (例如: jvm exec 17 -- mvn test)

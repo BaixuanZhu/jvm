@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"jvm/internal/pinrc"
 )
 
 // === decideAuto (纯决策) ===
@@ -81,22 +83,32 @@ func TestUseAutoDisabled(t *testing.T) {
 // === resolveRcVersion 解析失败路径 (不碰本地版本目录) ===
 
 func TestResolveRcVersionParseError(t *testing.T) {
-	t.Run("内容为空", func(t *testing.T) {
-		dir, warn := resolveRcVersion("", `D:\proj\.jvmrc`)
+	t.Run("空 spec", func(t *testing.T) {
+		dir, warn := resolveRcVersion("", pinrc.SrcJVMRC, `D:\proj\.jvmrc`)
 		if dir != "" {
 			t.Errorf("解析失败 dir 应为空, got %q", dir)
 		}
-		if !strings.Contains(warn, "内容为空") {
-			t.Errorf("warn 应说明内容为空, got %q", warn)
+		if warn == "" {
+			t.Error("空 spec 应有警告")
 		}
 	})
 	t.Run("非法 spec", func(t *testing.T) {
-		dir, warn := resolveRcVersion("corretto@\n", `D:\proj\.jvmrc`)
+		dir, warn := resolveRcVersion("corretto@", pinrc.SrcJVMRC, `D:\proj\.jvmrc`)
 		if dir != "" {
 			t.Errorf("解析失败 dir 应为空, got %q", dir)
 		}
 		if warn == "" {
 			t.Error("非法 spec 应有警告")
+		}
+	})
+	t.Run("未安装版本的警告带来源文件名", func(t *testing.T) {
+		withTempVersions(t) // 空版本目录: ResolveVersion 必然失败
+		_, warn := resolveRcVersion("corretto@21.0.2", pinrc.SrcSDKMANrc, `D:\proj\.sdkmanrc`)
+		if !strings.Contains(warn, ".sdkmanrc") {
+			t.Errorf("warn 应带来源文件名, got %q", warn)
+		}
+		if !strings.Contains(warn, "corretto@21.0.2") {
+			t.Errorf("warn 应带要求的版本, got %q", warn)
 		}
 	})
 }

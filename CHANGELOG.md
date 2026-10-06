@@ -7,6 +7,33 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 版本固定文件生态兼容读取：`jvm use` 无参 / `jvm exec` 无版本号 / `.jvmrc`
+  自动切换钩子，除原生 `.jvmrc` 外现在兼容读取团队仓库里常见的外来格式
+  ——`.java-version`（纯版本号一行）、`.tool-versions`（asdf / mise，取
+  `java` 行，支持 `temurin-21.0.2+11` 发行版前缀写法）、`.sdkmanrc`
+  （sdkman，取 `java=` 行，`-tem` / `-amzn` / `-ms` / `-zul` / `-librca` /
+  `-graal` 标识自动映射为对应发行版）。同一目录多文件并存时按
+  `.jvmrc` > `.java-version` > `.tool-versions` > `.sdkmanrc` 优先级取用，
+  逐级向上查找规则不变。这些生态的版本号普遍不含 build 号（如
+  `21.0.2-tem`），外来格式按"先精确、失败降级为大版本组内最新"宽松匹配
+  已装版本；`.jvmrc` 自身与显式命令参数保持原有严格语义。`jvm pin` 仍只
+  写 `.jvmrc`。shell 集成脚本随之升级 v3（多候选检测 + 缓存 key 改为命中
+  的 rc 文件路径），老用户下次运行 jvm 自动重写升级。
+
+- `jvm uninstall <distro@大版本> --all`：批量卸载该 (发行版, 大版本) 组的
+  全部已装 patch——先打印删除计划（标注在用版本）再一次确认，某个目录
+  删除失败（Windows 进程占用）不阻断其余，末尾汇总，存在失败时非零退出
+  供脚本感知（与 `update --all` 同一套交互模式）。
+
+### 变更
+
+- 卸载正在使用的版本后不再让 `current` 悬空：自动回退到剩余最新已装版本
+  （与 `doctor --fix` 重建 current 的选择规则一致），自动切换的待恢复基线
+  若指向被删目录则一并清除。`jvm uninstall` 参数解析同步支持 `-a/--all`、
+  未知选项显式报错（原先静默忽略）。
+
 ## [0.14.0] - 2026-09-05
 
 ### 修复

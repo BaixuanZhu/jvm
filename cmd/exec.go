@@ -61,25 +61,34 @@ func Exec(args []string) {
 }
 
 // resolveExecDir 把 exec 的版本参数解析到本地版本目录名。
-// specArgs 为空时依次尝试 .jvmrc 和 current 指向的版本。
+// specArgs 为空时依次尝试版本固定文件 (.jvmrc 及兼容格式) 和 current
+// 指向的版本; 外来格式来源走宽松匹配 (见 rc.go)。
 func resolveExecDir(specArgs []string) string {
 	arg := ""
+	loose := false
 	switch len(specArgs) {
 	case 0:
-		arg = execSpecFromContext()
+		arg, loose = execSpecFromContext()
 	case 1:
 		arg = specArgs[0]
 	default:
 		app.Fail("jvm exec 最多接受一个版本参数 (格式: [distro@]版本)")
 	}
 	if arg == "" {
-		app.Fail("没有可用的版本: 当前目录及上层无 .jvmrc, 也没有选中的版本。\n" +
+		app.Fail("没有可用的版本: 当前目录及上层无 .jvmrc (或兼容格式), 也没有选中的版本。\n" +
 			"  先 jvm install <版本号>, 或 jvm exec <版本> -- <命令>")
 	}
 
 	spec, err := app.ParseVersionSpec(arg)
 	if err != nil {
 		app.Fail(err.Error())
+	}
+	if loose {
+		dir, err := resolveVersionLoose(spec)
+		if err != nil {
+			app.Fail(err.Error() + "\n  先安装: jvm install " + spec.Distro + "@" + spec.Version)
+		}
+		return dir
 	}
 	dir, err := junction.ResolveVersion(spec.Distro, spec.Version)
 	if err != nil {
@@ -88,22 +97,20 @@ func resolveExecDir(specArgs []string) string {
 	return dir
 }
 
-// execSpecFromContext 返回无版本参数时的兜底 spec:
-// 先读 .jvmrc (从当前目录向上), 没有则用 current 指向的版本。
-// 都没有返回空串。
-func execSpecFromContext() string {
+// execSpecFromContext 返回无版本参数时的兜底 spec 与是否外来格式:
+// 先读版本固定文件 (从当前目录向上, .jvmrc 及兼容格式), 没有则用 current
+// 指向的版本。都没有返回空串。
+func execSpecFromContext() (string, bool) {
 	if cwd, err := os.Getwd(); err == nil {
-		if content, _, found := pinrc.FindUp(cwd); found {
-			if spec, err := pinrc.Parse(content); err == nil {
-				return spec
-			}
+		if spec, src, _, found := pinrc.FindUp(cwd); found {
+			return spec, src != pinrc.SrcJVMRC
 		}
 	}
 	if t := junction.ReadTarget(); t != "" {
 		distro, ver := junction.SplitDistro(filepath.Base(t))
-		return distro + "@" + ver
+		return distro + "@" + ver, false
 	}
-	return ""
+	return "", false
 }
 
 // execWith 在指定 JDK 版本的环境里执行命令。

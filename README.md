@@ -100,7 +100,8 @@ jvm use corretto@21         # 切换到 corretto 21
 jvm use                     # 无参则读当前目录的 .jvmrc 切换版本
 jvm pin corretto@21         # 固定此目录用 corretto 21 (写入 .jvmrc)
 jvm pin                     # 把当前版本写入 .jvmrc (无参用 current)
-jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过)
+jvm uninstall 21            # 卸载 (默认需确认, 加 -y 跳过; 删在用版本自动回退到剩余最新)
+jvm uninstall temurin@21 --all -y  # 批量卸载该大版本组的全部已装 patch
 jvm exec 17 -- mvn test     # 用 JDK 17 执行命令 (不动全局版本; 无版本号则读 .jvmrc)
 jvm update 21 -y            # 升级 21 到最新 patch: 装新 → 切换 → 清理旧版
 jvm update --all -y         # 批量升级全部落后版本组 (一次确认, 失败不阻断其余)
@@ -151,9 +152,24 @@ jvm use
 
 > `jvm pin` 只写文件，不切换版本；想立即生效再敲一次 `jvm use`。指定的版本需要先 `jvm install` 安装，`use` 读到未安装的版本会报错提示安装（不会自动下载）。
 
+### 兼容 sdkman / asdf / mise 的版本文件
+
+团队里其他人可能用 sdkman、asdf 或 mise 管理版本，他们提交到仓库的是各自的格式。jvm 能直接读这些文件——cd 进去照样自动切换，无需让全组改用 jvm：
+
+| 文件 | 来源工具 | 示例内容 | jvm 理解为 |
+| --- | --- | --- | --- |
+| `.java-version` | 历史习惯 | `21.0.2` | `21.0.2` |
+| `.tool-versions` | asdf / mise | `java temurin-21.0.2+11` | `temurin@21.0.2+11` |
+| `.sdkmanrc` | sdkman | `java=21.0.2-tem` | `temurin@21.0.2` |
+
+- 同一目录多个文件并存时按 `.jvmrc` > `.java-version` > `.tool-versions` > `.sdkmanrc` 优先级取用；不含 Java 信息的文件（如只有 `nodejs` 行的 `.tool-versions`）自动跳过
+- sdkman 标识自动映射：`-tem` → temurin、`-amzn` → corretto、`-ms` → microsoft、`-zul` → zulu、`-librca` → liberica、`-graal` → graalvm
+- 这些生态的版本号普遍不带 build 号（如 `21.0.2-tem`），jvm 按宽松规则匹配：精确匹配失败时降级为**该大版本组内已安装的最新版**。`.jvmrc` 自身与命令行参数不受影响，仍是严格匹配
+- `jvm pin` 依旧只写 `.jvmrc`（jvm 不写别人的格式文件）
+
 ### cd 自动切换
 
-装了新版集成脚本后（升级 jvm 即自动重写 profile 获得），**cd 进含 `.jvmrc` 的目录会自动切到该版本，cd 出去自动恢复**你之前手动选的版本：
+装了新版集成脚本后（升级 jvm 即自动重写 profile 获得），**cd 进含 `.jvmrc`（或上述兼容文件）的目录会自动切到该版本，cd 出去自动恢复**你之前手动选的版本：
 
 ```powershell
 jvm use 21          # 手动选定 21
@@ -161,8 +177,8 @@ cd D:\proj\legacy   # 该目录有 .jvmrc (内容 8) → 自动切到 8
 cd ~                # 离开项目 → 自动恢复 21
 ```
 
-- 目录和 `.jvmrc` 没变时零开销（双层缓存，不会每次按回车都拉起 jvm）
-- `.jvmrc` 指定的版本未安装时提示一行 `jvm install` 建议，不刷屏
+- 目录和 rc 文件没变时零开销（双层缓存，不会每次按回车都拉起 jvm）
+- rc 文件指定的版本未安装时提示一行 `jvm install` 建议，不刷屏
 - 手动 `jvm use` 永远优先：显式切换后即成为新的恢复基线
 - 不喜欢此行为？在 `~/.jvm/config.toml` 设 `autoswitch = false`（或临时 `JVM_AUTOSWITCH=0`）关闭
 
