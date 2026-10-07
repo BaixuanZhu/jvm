@@ -116,10 +116,17 @@ jvm available -r            # 绕过缓存强制刷新直查
 jvm current                 # 当前版本 (会实际执行 java -version)
 jvm home                    # 打印当前 JAVA_HOME 路径 (供脚本/IDE 引用)
 jvm outdated                # 检查已安装版本是否有新 patch 可升级
-jvm cache                   # 查看下载缓存 (安装包留存, 重装免下载)
+jvm cache                   # 查看下载缓存 (安装包留存, 重装免下载; 附文件日期)
 jvm cache clean             # 清空下载缓存
+jvm cache clean --older-than 30d   # 只清修改于 30 天前的缓存文件
 jvm doctor                  # 诊断环境配置 (14 项: PATH/junction/JAVA_HOME/集成/残留...)
 jvm doctor --fix            # 诊断 + 自动修复可修项 (PATH 残留删除前逐条确认, -y 跳过)
+
+# 机器可读输出 (脚本 / CI 消费; 供 list / available / outdated / doctor)
+jvm list --json             # {"installed":[{distro,version,major,dir,current}...]}
+jvm available --json        # 表格形态给 rows; -a/--major 给 groups (含 LTS 标记)
+jvm outdated --json         # {"groups":[{distro,major,local,latest,upgradable,failed}...]}
+jvm doctor --json           # {"ok":bool,"checks":[{name,ok,detail,fix}...]} (与 --fix 互斥)
 
 # Shell 集成 (当前终端立即生效)
 jvm init powershell         # 打印 PowerShell 集成脚本
@@ -194,6 +201,23 @@ jvm 首次运行时会**自动**把 shell 集成函数写入 PowerShell `$PROFIL
 > - 自动集成是**幂等**的，jvm 每次启动静默检查，缺失才补。
 > - **CMD (cmd.exe)** 暂不支持自动集成（doskey 体验差）。CMD 用户请新开窗口，或手动运行 `jvm init` 查看脚本。
 > - 若你想手动管理集成，仍可用 `jvm init powershell` / `jvm init bash` 打印脚本。
+
+## 脚本集成（--json）
+
+`list` / `available` / `outdated` / `doctor` 四个只读命令支持 `--json`（短名 `-j`），输出紧凑 JSON 供脚本与 CI 消费。**只改输出格式，不改语义**：退出码、缓存行为与人类模式完全一致；错误仍走 stderr 并以非零退出（stdout 始终是纯 JSON 或空）。
+
+```powershell
+# 所有已装版本号
+jvm list --json | jq '.installed[].version'
+
+# 列出落后于最新 patch 的组 (upgradable 是现成结论, 无需自己比版本号)
+jvm outdated --json | jq '.groups[] | select(.upgradable)'
+
+# CI 里检查环境健康: 读 ok 字段而非退出码 (doctor 诊断失败退出码仍为 0)
+jvm doctor --json | jq -e '.ok'
+```
+
+`doctor --json` 与 `--fix` 互斥（一个是只读报告，一个是修复动作）；检查项 `name` 与人类输出一致（中文），脚本可直接按名称断言。
 
 ## 工作原理
 

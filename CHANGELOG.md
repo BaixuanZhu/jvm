@@ -27,6 +27,18 @@
   删除失败（Windows 进程占用）不阻断其余，末尾汇总，存在失败时非零退出
   供脚本感知（与 `update --all` 同一套交互模式）。
 
+- 只读命令机器可读输出：`jvm list / available / outdated / doctor` 新增
+  `--json`（短名 `-j`），输出紧凑 JSON 供脚本与 CI 消费。只改输出格式不改
+  语义——退出码、available 的缓存行为与人类模式完全一致；`--json` 下抑制
+  进度行与提示语，错误仍走 stderr 非零退出（stdout 始终纯净）。字段按命令
+  携带结构化结论（如 outdated 的 `upgradable`、doctor 的 `ok`），无需消费方
+  自己比对版本号。`doctor --json` 与 `--fix` 互斥。
+
+- `jvm cache clean --older-than <Nd>`：按文件修改时间清理下载缓存，只删
+  修改于 N 天前的安装包 zip 与中断残留的 `.zip.part`（支持
+  `--older-than=30d` 等号写法）；不带参数仍是无条件全清。`jvm cache` 列表
+  相应增加最后修改日期列，方便决定阈值。
+
 ### 变更
 
 - 卸载正在使用的版本后不再让 `current` 悬空：自动回退到剩余最新已装版本

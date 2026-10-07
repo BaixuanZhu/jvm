@@ -30,20 +30,45 @@ type outdatedRow struct {
 	failed bool   // 查询是否失败
 }
 
-// Outdated 处理 jvm outdated: 列出本地已装版本哪些有新 patch。
-func Outdated() {
+// outdatedEntry 是 jvm outdated --json 输出的一组 (发行版, 大版本) 检查结果。
+type outdatedEntry struct {
+	Distro     string `json:"distro"`     // 发行版标识
+	Major      int    `json:"major"`      // 大版本号
+	Local      string `json:"local"`      // 本地该组最新版本号
+	Latest     string `json:"latest"`     // 远端最新 patch 版本号; 查询失败留空
+	Upgradable bool   `json:"upgradable"` // 本地是否落后 (派生结论; failed 时恒 false)
+	Failed     bool   `json:"failed"`     // 该组查询是否失败
+}
+
+// outdatedOutput 是 jvm outdated --json 的顶层输出。
+type outdatedOutput struct {
+	Groups []outdatedEntry `json:"groups"`
+}
+
+// Outdated 处理 jvm outdated [--json]: 列出本地已装版本哪些有新 patch。
+func Outdated(args []string) {
+	jsonOut, err := parseJSONFlag(args)
+	if err != nil {
+		app.Fail(err.Error())
+	}
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
 	}
 	names, _ := junction.ListLocal()
 	if len(names) == 0 {
+		if jsonOut {
+			app.PrintJSON(outdatedOutput{Groups: []outdatedEntry{}})
+			return
+		}
 		fmt.Println("还没有安装任何版本。")
 		fmt.Println("运行 jvm available 查看可安装版本, 然后 jvm install <版本号>。")
 		return
 	}
 	groups := groupInstalled(names)
 
-	fmt.Printf("🔍 正在查询 %d 组已装版本的最新 patch (并发)...\n", len(groups))
+	if !jsonOut {
+		fmt.Printf("🔍 正在查询 %d 组已装版本的最新 patch (并发)...\n", len(groups))
+	}
 
 	// 并发查每组的最新 GA (与 availableTable 同款 WaitGroup + 索引切片模式)
 	rows := make([]outdatedRow, len(groups))
@@ -67,6 +92,21 @@ func Outdated() {
 	}
 	wg.Wait()
 
+	if jsonOut {
+		out := outdatedOutput{Groups: make([]outdatedEntry, 0, len(rows))}
+		for _, r := range rows {
+			out.Groups = append(out.Groups, outdatedEntry{
+				Distro:     r.group.distro,
+				Major:      r.group.major,
+				Local:      r.group.localVer,
+				Latest:     r.latest,
+				Upgradable: !r.failed && app.CompareVersions(r.group.localVer, r.latest) < 0,
+				Failed:     r.failed,
+			})
+		}
+		app.PrintJSON(out)
+		return
+	}
 	printOutdated(rows)
 }
 

@@ -23,6 +23,7 @@
 // doctor --fix 在报告后对失败项执行自动修复 (见 applyFixes): 只修无争议项
 // (目录/JAVA_HOME/junction 重建/profile 注入/PATH 补全/残留清理/解压半成品
 // 清理), 残留清理前逐条确认; 需重装或动系统 PATH 的项保留建议不动。
+// doctor --json 则以机器可读 JSON 输出同批检查结果 (与 --fix 互斥)。
 package doctor
 
 import (
@@ -35,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"jvm/internal/app"
 	"jvm/internal/config"
 	"jvm/internal/env"
 	"jvm/internal/junction"
@@ -57,12 +59,15 @@ type profileItem struct {
 }
 
 // Run 执行全部检查并打印诊断报告。fix 为 true 时 (--fix) 对失败项执行自动修复,
-// assumeYes 为 true 时 (-y) 跳过残留清理的逐条确认 (供脚本调用)。
+// assumeYes 为 true 时 (-y) 跳过残留清理的逐条确认 (供脚本调用)。jsonOut 为
+// true 时 (--json) 以 JSON 输出机器可读报告 (与 --fix 互斥, 由调用方校验)。
 // installDir 是 config.toml 的 install_dir 值 (空 = 未配置), 用于检测
 // 数据目录重定向后旧默认目录的残留版本 (只提示, 不自动搬迁)。
-func Run(fix, assumeYes bool, installDir string) {
-	fmt.Println("🏥 jvm 环境诊断")
-	fmt.Println(strings.Repeat("─", 40))
+func Run(fix, assumeYes, jsonOut bool, installDir string) {
+	if !jsonOut {
+		fmt.Println("🏥 jvm 环境诊断")
+		fmt.Println(strings.Repeat("─", 40))
+	}
 
 	// 从真实全局状态读取检查所需输入
 	javaHome, _ := env.ReadUserEnv("JAVA_HOME")
@@ -99,10 +104,19 @@ func Run(fix, assumeYes bool, installDir string) {
 
 	var failed []check
 	for _, c := range checks {
-		printCheck(c)
+		if !jsonOut {
+			printCheck(c)
+		}
 		if !c.ok {
 			failed = append(failed, c)
 		}
+	}
+
+	// --json: 输出机器可读报告即止 (退出码与人类模式一致, 恒 0 —— doctor 是诊断
+	// 报告不是断言; CI 想按结果分岐应读 ok 字段而非退出码)
+	if jsonOut {
+		app.PrintJSON(checksToReport(checks))
+		return
 	}
 
 	fmt.Println(strings.Repeat("─", 40))
@@ -127,6 +141,38 @@ func printCheck(c check) {
 	if c.fix != "" {
 		fmt.Printf("    修复: %s\n", c.fix)
 	}
+}
+
+// checkJSON 是单个检查项的 JSON 序列化镜像 (字段导出供 encoding/json 序列化,
+// 类型不出包)。name 与人类输出及 --fix 修复路由共用同一中文串, 单一事实源。
+type checkJSON struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+	Fix    string `json:"fix"` // 失败时的修复建议; 通过时为空
+}
+
+// report 是 jvm doctor --json 的顶层输出。
+type report struct {
+	OK     bool        `json:"ok"` // 全部检查是否通过
+	Checks []checkJSON `json:"checks"`
+}
+
+// checksToReport 把检查结果转为 --json 输出结构。纯函数, 便于表驱动测试。
+func checksToReport(checks []check) report {
+	r := report{OK: true, Checks: make([]checkJSON, 0, len(checks))}
+	for _, c := range checks {
+		if !c.ok {
+			r.OK = false
+		}
+		r.Checks = append(r.Checks, checkJSON{
+			Name:   c.name,
+			OK:     c.ok,
+			Detail: c.detail,
+			Fix:    c.fix,
+		})
+	}
+	return r
 }
 
 // checkDirs 检查 root 和 versions 目录是否存在。legacyVersions 非空表示

@@ -178,12 +178,60 @@ func switchTo(targetDir string) error {
 	return nil
 }
 
-// List 处理 jvm list
-func List() {
+// parseJSONFlag 解析只接受 --json / -j 的参数 (list / outdated 这类无其他选项的
+// 只读命令共用), 重复给不报错。遇到任何其他参数返回错误。纯函数, 便于表驱动测试。
+func parseJSONFlag(args []string) (jsonOut bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "--json", "-j":
+			jsonOut = true
+		default:
+			return false, fmt.Errorf("未识别的参数: %s (本命令仅支持 --json)", a)
+		}
+	}
+	return jsonOut, nil
+}
+
+// listEntry 是 jvm list --json 输出的一条已装版本 (字段导出供 encoding/json
+// 序列化, 类型本身不出包; 各命令的 --json DTO 均沿用此约定)。
+type listEntry struct {
+	Distro  string `json:"distro"`  // 发行版标识 (旧无前缀目录归为 temurin)
+	Version string `json:"version"` // 版本号 (目录名去掉 distro 前缀)
+	Major   int    `json:"major"`   // 大版本号
+	Dir     string `json:"dir"`     // 磁盘上的真实目录名
+	Current bool   `json:"current"` // 是否为 current 指向的在用版本
+}
+
+// listOutput 是 jvm list --json 的顶层输出。
+type listOutput struct {
+	Installed []listEntry `json:"installed"`
+}
+
+// List 处理 jvm list [--json]: 列出本地已安装的版本 (降序, → 标记 current)。
+func List(args []string) {
+	jsonOut, err := parseJSONFlag(args)
+	if err != nil {
+		app.Fail(err.Error())
+	}
 	if err := paths.EnsureDirs(); err != nil {
 		app.Fail(err.Error())
 	}
 	names, current := junction.ListLocal()
+	if jsonOut {
+		out := listOutput{Installed: make([]listEntry, 0, len(names))}
+		for _, n := range names {
+			distro, ver := junction.SplitDistro(n)
+			out.Installed = append(out.Installed, listEntry{
+				Distro:  distro,
+				Version: ver,
+				Major:   junction.MajorOf(n),
+				Dir:     n,
+				Current: n == current,
+			})
+		}
+		app.PrintJSON(out)
+		return
+	}
 	if len(names) == 0 {
 		fmt.Println("还没有安装任何版本。")
 		fmt.Println("运行 jvm available 查看可安装版本, 然后 jvm install <版本号>。")
@@ -215,6 +263,7 @@ type AvailableOptions struct {
 	All     bool   // -a/--all: 列出每个大版本的全部子版本
 	Major   int    // -m/--major: 仅列出该大版本的全部子版本 (0 表示未指定)
 	Refresh bool   // -r/--refresh: 绕过本地缓存强制直查 provider
+	JSON    bool   // --json: 以 JSON 输出 (机器消费), 抑制进度行与安装提示
 }
 
 // ParseAvailableArgs 解析 jvm available 的命令行参数。
@@ -225,6 +274,7 @@ type AvailableOptions struct {
 //	-m <N> / --major <N>    仅列出大版本 N 的全部子版本
 //	--major=<N>             同上 (等号形式)
 //	-r / --refresh          绕过查询缓存, 强制直查各 provider
+//	--json / -j             以 JSON 输出 (机器消费)
 //
 // -a 与 --major 互斥。distro 位置参数最多一个, 多余报错。
 // 纯函数, 便于表驱动测试。
@@ -264,8 +314,10 @@ func ParseAvailableArgs(args []string) (AvailableOptions, error) {
 			opts.Major = m
 		case arg == "-r" || arg == "--refresh":
 			opts.Refresh = true
+		case arg == "--json" || arg == "-j":
+			opts.JSON = true
 		case strings.HasPrefix(arg, "-"):
-			return opts, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -m <N> / --major <N> / -r / --refresh)", arg)
+			return opts, fmt.Errorf("未识别的选项: %s (可用: -a / --all / -m <N> / --major <N> / -r / --refresh / --json)", arg)
 		default:
 			// 位置参数: 第一个当 distro, 多余报错
 			if opts.Distro != "" {
@@ -286,10 +338,81 @@ type versionGroup struct {
 	failed   bool // 查询失败时为 true, versions 为空
 }
 
-// Available 处理 jvm available [distro] [-a | --major <N>] [-r]。
+// rowJSON 是 --json 表格形态的一行 (availableRow 的序列化镜像)。
+type rowJSON struct {
+	Major  int    `json:"major"`
+	Latest string `json:"latest"` // 简短版本号; 查询失败留空
+	LTS    bool   `json:"lts"`
+	Failed bool   `json:"failed"`
+}
+
+// tableOutput 是 jvm available --json 表格形态 (每个大版本最新 GA) 的顶层输出。
+type tableOutput struct {
+	Distro      string    `json:"distro"`       // 发行版标识
+	DisplayName string    `json:"display_name"` // 人类可读名
+	Rows        []rowJSON `json:"rows"`
+}
+
+// groupJSON 是 --json 分组形态的一组 (versionGroup 的序列化镜像)。
+type groupJSON struct {
+	Major    int      `json:"major"`
+	LTS      bool     `json:"lts"`
+	Versions []string `json:"versions"` // 全部子版本 (降序); 失败组为 []
+	Failed   bool     `json:"failed"`
+}
+
+// groupsOutput 是 jvm available --json 分组形态 (-a / --major) 的顶层输出。
+type groupsOutput struct {
+	Distro      string      `json:"distro"`
+	DisplayName string      `json:"display_name"`
+	Groups      []groupJSON `json:"groups"`
+}
+
+// rowsToJSON 把表格行转为 --json 输出结构。纯函数, 便于表驱动测试。
+func rowsToJSON(distro, displayName string, rows []availableRow) tableOutput {
+	out := tableOutput{
+		Distro:      distro,
+		DisplayName: displayName,
+		Rows:        make([]rowJSON, 0, len(rows)),
+	}
+	for _, r := range rows {
+		out.Rows = append(out.Rows, rowJSON{
+			Major:  r.major,
+			Latest: r.latest,
+			LTS:    r.lts,
+			Failed: r.failed,
+		})
+	}
+	return out
+}
+
+// groupsToJSON 把分组结果转为 --json 输出结构 (失败组的 nil versions 规范化为 [])。
+// 纯函数, 便于表驱动测试。
+func groupsToJSON(distro, displayName string, groups []versionGroup) groupsOutput {
+	out := groupsOutput{
+		Distro:      distro,
+		DisplayName: displayName,
+		Groups:      make([]groupJSON, 0, len(groups)),
+	}
+	for _, g := range groups {
+		versions := g.versions
+		if versions == nil {
+			versions = []string{}
+		}
+		out.Groups = append(out.Groups, groupJSON{
+			Major:    g.major,
+			LTS:      g.lts,
+			Versions: versions,
+			Failed:   g.failed,
+		})
+	}
+	return out
+}
+
+// Available 处理 jvm available [distro] [-a | --major <N>] [-r] [--json]。
 // 无 flag 时以表格列出每个大版本的最新 GA; -a/--major 时按大版本分组列出全部子版本。
 // distro 位置参数指定发行版 (空 = 默认 temurin)。查询结果经本地缓存加速
-// (见 available_cache.go), -r 强制刷新。
+// (见 available_cache.go), -r 强制刷新; --json 输出同数据的机器可读 JSON。
 func Available(opts AvailableOptions) {
 	distro := opts.Distro
 	if distro == "" {
@@ -299,7 +422,7 @@ func Available(opts AvailableOptions) {
 		availableGroups(opts, distro)
 		return
 	}
-	availableTable(distro, opts.Refresh)
+	availableTable(opts, distro)
 }
 
 // printAvailableHints 打印表格形态的尾部安装提示 (直查与缓存命中路径共用)。
@@ -310,26 +433,37 @@ func printAvailableHints(p provider.Provider) {
 	fmt.Printf("查看全部子版本: jvm available %s -a  或  jvm available %s --major 21\n", p.Name(), p.Name())
 }
 
-// availableTable 是默认的表格输出 (每个大版本最新 GA)。
-func availableTable(distro string, refresh bool) {
+// availableTable 是默认的表格输出 (每个大版本最新 GA)。--json 时输出同数据
+// 的 JSON (抑制进度行 / 缓存说明 / 安装提示), 缓存读写逻辑与人类模式完全一致。
+func availableTable(opts AvailableOptions, distro string) {
 	p, err := provider.Get(distro)
 	if err != nil {
 		app.Fail(err.Error())
 	}
-	if !refresh {
+	if !opts.Refresh {
 		if rows, ok := loadTableCache(distro); ok {
+			if opts.JSON {
+				app.PrintJSON(rowsToJSON(distro, p.DisplayName(), rows))
+				return
+			}
 			printAvailableTable(rows, p.DisplayName())
 			fmt.Println(cacheNoticeLine())
 			printAvailableHints(p)
 			return
 		}
 	}
-	fmt.Printf("🔍 正在查询 %s 可安装的大版本 (并发获取最新版本号)...\n", p.DisplayName())
+	if !opts.JSON {
+		fmt.Printf("🔍 正在查询 %s 可安装的大版本 (并发获取最新版本号)...\n", p.DisplayName())
+	}
 	releases, err := p.Available()
 	if err != nil {
 		app.Fail("查询失败: " + err.Error())
 	}
 	if len(releases) == 0 {
+		if opts.JSON {
+			app.PrintJSON(rowsToJSON(distro, p.DisplayName(), nil))
+			return
+		}
 		fmt.Println("没有查询到可用版本。")
 		return
 	}
@@ -362,6 +496,10 @@ func availableTable(distro string, refresh bool) {
 	if !rowsAnyFailed(rows) {
 		saveTableCache(distro, rows)
 	}
+	if opts.JSON {
+		app.PrintJSON(rowsToJSON(distro, p.DisplayName(), rows))
+		return
+	}
 	printAvailableTable(rows, p.DisplayName())
 	printAvailableHints(p)
 }
@@ -390,13 +528,19 @@ func availableGroups(opts AvailableOptions, distro string) {
 	// --major 单组: 缓存命中直接出 (跳过 Available 的存在性检查, TTL 内以缓存为准)
 	if !opts.Refresh && opts.Major > 0 {
 		if g, ok := loadGroupCache(distro, opts.Major); ok {
+			if opts.JSON {
+				app.PrintJSON(groupsToJSON(distro, p.DisplayName(), []versionGroup{g}))
+				return
+			}
 			printAvailableGroups([]versionGroup{g}, p.DisplayName())
 			printGroupHints(p, cacheNoticeLine())
 			return
 		}
 	}
 
-	fmt.Printf("🔍 正在查询 %s 可安装的子版本 (可能稍慢)...\n", p.DisplayName())
+	if !opts.JSON {
+		fmt.Printf("🔍 正在查询 %s 可安装的子版本 (可能稍慢)...\n", p.DisplayName())
+	}
 
 	// 取大版本列表 + LTS 标记 (单次 API; --major 场景也用它拿 LTS 标记)
 	releases, err := p.Available()
@@ -467,6 +611,10 @@ func availableGroups(opts AvailableOptions, distro string) {
 	notice := ""
 	if len(missIdx) == 0 {
 		notice = cacheNoticeLine()
+	}
+	if opts.JSON {
+		app.PrintJSON(groupsToJSON(distro, p.DisplayName(), groups))
+		return
 	}
 	printAvailableGroups(groups, p.DisplayName())
 	printGroupHints(p, notice)

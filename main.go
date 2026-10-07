@@ -99,7 +99,7 @@ func main() {
 		}
 		cmd.Pin(arg)
 	case "list", "ls":
-		cmd.List()
+		cmd.List(args)
 	case "cache":
 		cmd.Cache(args)
 	case "available":
@@ -109,7 +109,7 @@ func main() {
 		}
 		cmd.Available(opts)
 	case "outdated":
-		cmd.Outdated()
+		cmd.Outdated(args)
 	case "update":
 		cmd.Update(args)
 	case "uninstall", "rm":
@@ -121,16 +121,21 @@ func main() {
 	case "exec":
 		cmd.Exec(args)
 	case "doctor":
-		fix, assumeYes := false, false
+		fix, assumeYes, jsonOut := false, false, false
 		for _, a := range args {
 			switch a {
 			case "--fix", "-f":
 				fix = true
 			case "-y", "--yes":
 				assumeYes = true
+			case "--json", "-j":
+				jsonOut = true
 			}
 		}
-		doctor.Run(fix, assumeYes, cfg.InstallDir)
+		if fix && jsonOut {
+			app.Fail("--fix 与 --json 不能同时使用 (--fix 是修复动作, --json 是只读报告)")
+		}
+		doctor.Run(fix, assumeYes, jsonOut, cfg.InstallDir)
 	case "init":
 		shell.InitDispatch(args)
 	case "completion":
@@ -174,11 +179,12 @@ func usage() {
   use <[distro@]版本>      切换到指定版本 (无参则读 .jvmrc; 大版本号取最新, 完整版本号精确)
                            cd 进含 .jvmrc 的目录时自动切换 (config.toml 设 autoswitch=false 关闭)
   pin [版本]               固定当前目录的 JDK 版本到 .jvmrc (无参用当前版本)
-  list                     列出本地已安装的版本
-  cache [clean]            查看/清空下载缓存 (安装包留存, 卸载重装免重新下载)
-  available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本;
-                           查询结果本地缓存 10 分钟, -r/--refresh 强制刷新)
-  outdated                 检查已安装版本是否有新 patch 可升级
+  list [--json]            列出本地已安装的版本
+  cache [clean]            查看/清空下载缓存 (安装包留存, 卸载重装免重新下载;
+                           clean --older-than <Nd> 只清修改于 N 天前的文件)
+  available [distro] [...] 列出可安装版本 (-a 全部子版本, --major 指定大版本,
+                           --json 机器可读; 查询结果本地缓存 10 分钟, -r/--refresh 强制刷新)
+  outdated [--json]        检查已安装版本是否有新 patch 可升级
   update <[distro@]大版本> [-y]  升级该大版本到最新 patch: 装新 → 切换 → 清理旧版
                            (仅接受大版本号; 当前正在使用该组版本时自动切换, -y 跳过确认)
   update --all [-y]            升级全部落后版本组 (一次确认; 某组失败不阻断其余)
@@ -188,7 +194,8 @@ func usage() {
   current                  显示当前正在使用的版本
   home                     打印当前 JAVA_HOME 路径 (~/.jvm/current, 供脚本/IDE 引用)
   exec <版本> -- <命令>    用指定版本执行命令, 不动全局 (例如: jvm exec 17 -- mvn test)
-  doctor [--fix]           诊断环境配置 (--fix 自动修复可修项, 残留清理前逐条确认)
+  doctor [--fix] [--json]  诊断环境配置 (--fix 自动修复可修项, 残留清理前逐条确认;
+                           --json 输出机器可读报告, 与 --fix 互斥)
   init <shell>             打印/安装 shell 集成脚本 (通常自动完成, 无需手动)
   completion <shell>       打印/安装 shell Tab 补全脚本 (通常自动完成, 无需手动)
   upgrade                  检查并更新 jvm 自身 (通过 GitHub Release)
@@ -201,6 +208,7 @@ func usage() {
   jvm install corretto@21     # 安装 corretto JDK 21
   jvm install microsoft@21    # 安装 microsoft JDK 21
   jvm available corretto      # 查看 corretto 可安装版本
+  jvm list --json             # 机器可读输出 (list/available/outdated/doctor 通用)
   jvm pin corretto@21         # 固定此目录用 corretto 21 (写入 .jvmrc)
   jvm use                     # 无参时读 .jvmrc 切换版本
 

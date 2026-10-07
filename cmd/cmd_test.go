@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,6 +57,12 @@ func TestParseAvailableArgs(t *testing.T) {
 		{"-r + -a", []string{"-r", "-a"}, AvailableOptions{All: true, Refresh: true}, false},
 		{"-r + -m", []string{"-m", "17", "--refresh"}, AvailableOptions{Major: 17, Refresh: true}, false},
 		{"-r + distro", []string{"corretto", "-r"}, AvailableOptions{Distro: "corretto", Refresh: true}, false},
+
+		// --json / -j (可与全部其他选项组合)
+		{"long --json", []string{"--json"}, AvailableOptions{JSON: true}, false},
+		{"short -j", []string{"-j"}, AvailableOptions{JSON: true}, false},
+		{"--json + -a + distro", []string{"corretto", "-a", "--json"}, AvailableOptions{Distro: "corretto", All: true, JSON: true}, false},
+		{"--json + -r + -m", []string{"-j", "-r", "-m", "17"}, AvailableOptions{Major: 17, Refresh: true, JSON: true}, false},
 
 		// 未识别 flag / 多余位置参数
 		{"unknown flag", []string{"-x"}, AvailableOptions{}, true},
@@ -120,7 +127,7 @@ func TestAvailableTableConcurrent(t *testing.T) {
 	withTempVersions(t)
 	name := "fake-cmd-table-" + t.Name()
 	provider.Register(fakeProvider{name: name})
-	availableTable(name, false) // 并发查 LatestPatch; -race 下无竞争报告即通过
+	availableTable(AvailableOptions{}, name) // 并发查 LatestPatch; -race 下无竞争报告即通过
 }
 
 // TestAvailableGroupsConcurrent 验证 availableGroups 的并发 (goroutine 各写 groups[i])。
@@ -145,5 +152,147 @@ func TestHome(t *testing.T) {
 	out := captureStdout(t, Home)
 	if got := strings.TrimSpace(out); got != paths.CurrentLink {
 		t.Errorf("home 输出 = %q, 想 %q", got, paths.CurrentLink)
+	}
+}
+
+func TestParseJSONFlag(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    bool
+		wantErr bool
+	}{
+		{"无参", nil, false, false},
+		{"--json", []string{"--json"}, true, false},
+		{"短名 -j", []string{"-j"}, true, false},
+		{"重复不报错", []string{"--json", "-j"}, true, false},
+		{"未知参数", []string{"--foo"}, false, true},
+		{"位置参数", []string{"21"}, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseJSONFlag(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseJSONFlag(%v) 期望报错", tt.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseJSONFlag(%v) 未预期错误: %v", tt.args, err)
+			}
+			if got != tt.want {
+				t.Errorf("parseJSONFlag(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestListJSON 验证 jvm list --json: 字段拆分 (distro/version/major/dir)、
+// current 标记、旧无前缀目录归 temurin、空安装输出空数组。
+func TestListJSON(t *testing.T) {
+	root := withTempVersions(t)
+	for _, d := range []string{"temurin-21.0.8+7", "temurin-17.0.12+8", "corretto-21.0.5+6", "21.0.12+8"} {
+		if err := os.MkdirAll(filepath.Join(root, "versions", d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := junction.Create(paths.CurrentLink, filepath.Join(root, "versions", "corretto-21.0.5+6")); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() { List([]string{"--json"}) })
+	var got listOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("输出不是合法 JSON: %v\n%s", err, out)
+	}
+	if len(got.Installed) != 4 {
+		t.Fatalf("应有 4 条, 实际 %d: %+v", len(got.Installed), got.Installed)
+	}
+	byDir := map[string]listEntry{}
+	for _, e := range got.Installed {
+		byDir[e.Dir] = e
+	}
+	// current 标记: 只有 corretto-21.0.5+6
+	cur := 0
+	for _, e := range got.Installed {
+		if e.Current {
+			cur++
+			if e.Dir != "corretto-21.0.5+6" {
+				t.Errorf("current 标错了: %+v", e)
+			}
+		}
+	}
+	if cur != 1 {
+		t.Errorf("应恰有 1 条 current, 实际 %d", cur)
+	}
+	// 字段拆分
+	if e := byDir["temurin-21.0.8+7"]; e.Distro != "temurin" || e.Version != "21.0.8+7" || e.Major != 21 {
+		t.Errorf("temurin 条目 = %+v", e)
+	}
+	// 旧无前缀目录归 temurin (与 DisplayName 语义一致), dir 保留原始目录名
+	if e := byDir["21.0.12+8"]; e.Distro != "temurin" || e.Version != "21.0.12+8" || e.Major != 21 {
+		t.Errorf("旧目录条目 = %+v, 想归为 temurin", e)
+	}
+}
+
+// TestListJSONEmpty 验证空安装时输出 {"installed":[]} 而非人类提示语。
+func TestListJSONEmpty(t *testing.T) {
+	withTempVersions(t)
+	out := captureStdout(t, func() { List([]string{"--json"}) })
+	if got := strings.TrimSpace(out); got != `{"installed":[]}` {
+		t.Errorf("空安装输出 = %q, 想 {\"installed\":[]}", got)
+	}
+}
+
+// TestAvailableTableJSON 验证表格形态 --json: 顶层 distro/display_name + 行字段,
+// 且不输出进度行与安装提示 (输出整份可被 JSON 解析)。
+func TestAvailableTableJSON(t *testing.T) {
+	withTempVersions(t)
+	name := "fake-json-table-" + t.Name()
+	provider.Register(fakeProvider{name: name})
+
+	out := captureStdout(t, func() { Available(AvailableOptions{Distro: name, JSON: true}) })
+	if strings.Contains(out, "正在查询") || strings.Contains(out, "安装:") {
+		t.Errorf("--json 不应输出进度行或提示:\n%s", out)
+	}
+	var got tableOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("输出不是合法 JSON: %v\n%s", err, out)
+	}
+	if got.Distro != name || got.DisplayName != "Fake" {
+		t.Errorf("顶层 = %+v", got)
+	}
+	if len(got.Rows) != 3 {
+		t.Fatalf("fakeProvider 有 3 个大版本, 实际 %d: %+v", len(got.Rows), got.Rows)
+	}
+	// Available 顺序 17/21/25, 输出应倒序 (新在前)
+	if got.Rows[0].Major != 25 || got.Rows[0].Latest != "25.0.1+1" || got.Rows[0].Failed {
+		t.Errorf("首行 = %+v, 想 25 组最新", got.Rows[0])
+	}
+	if !got.Rows[1].LTS || got.Rows[1].Major != 21 {
+		t.Errorf("次行 = %+v, 想 21 LTS", got.Rows[1])
+	}
+}
+
+// TestAvailableGroupsJSON 验证分组形态 --json (-a): 组结构与 versions 数组。
+func TestAvailableGroupsJSON(t *testing.T) {
+	withTempVersions(t)
+	name := "fake-json-groups-" + t.Name()
+	provider.Register(fakeProvider{name: name})
+
+	out := captureStdout(t, func() { Available(AvailableOptions{Distro: name, All: true, JSON: true}) })
+	var got groupsOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("输出不是合法 JSON: %v\n%s", err, out)
+	}
+	if got.Distro != name || len(got.Groups) != 3 {
+		t.Errorf("分组结果 = %s (distro=%s, %d 组)", out, got.Distro, len(got.Groups))
+	}
+	// fakeProvider.ListVersions 每组返回两条, 降序 (新在前)
+	for _, g := range got.Groups {
+		if g.Failed || len(g.Versions) != 2 || g.Versions[0] != fmt.Sprintf("%d.0.1+1", g.Major) {
+			t.Errorf("组 = %+v", g)
+		}
 	}
 }

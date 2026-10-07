@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -162,7 +163,7 @@ func TestOutdatedEndToEnd(t *testing.T) {
 		failing: map[int]bool{25: true},
 	})
 
-	out := captureStdout(t, Outdated)
+	out := captureStdout(t, func() { Outdated(nil) })
 	for _, want := range []string{
 		"可升级的版本",
 		name + "@21    21.0.5+11 → 21.0.8+7",
@@ -176,5 +177,60 @@ func TestOutdatedEndToEnd(t *testing.T) {
 	}
 	if strings.Contains(out, name+"@17") {
 		t.Errorf("已最新的 17 组不应列出:\n%s", out)
+	}
+}
+
+// TestOutdatedJSON 验证 --json 全流程: 三分支 (可升级 / 已最新 / 失败) 的字段
+// 与派生结论 upgradable, 且输出不含人类提示 (纯净 JSON 可被解析)。
+func TestOutdatedJSON(t *testing.T) {
+	root := withTempVersions(t)
+	name := "fakeodj" + t.Name()
+	mkdirVersion := func(dir string) {
+		if err := os.MkdirAll(filepath.Join(root, "versions", dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkdirVersion(name + "-21.0.5+11")
+	mkdirVersion(name + "-17.0.9+2")
+	mkdirVersion(name + "-25.0.1+1")
+
+	provider.Register(outdatedFakeProvider{
+		name:    name,
+		latest:  map[int]string{21: "21.0.8+7", 17: "17.0.9+2"},
+		failing: map[int]bool{25: true},
+	})
+
+	out := captureStdout(t, func() { Outdated([]string{"--json"}) })
+	if strings.Contains(out, "正在查询") {
+		t.Errorf("--json 不应输出进度提示:\n%s", out)
+	}
+	var got outdatedOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("输出不是合法 JSON: %v\n%s", err, out)
+	}
+	byMajor := map[int]outdatedEntry{}
+	for _, g := range got.Groups {
+		byMajor[g.Major] = g
+	}
+	if len(got.Groups) != 3 {
+		t.Errorf("应有 3 组, 实际 %d: %+v", len(got.Groups), got.Groups)
+	}
+	if g := byMajor[21]; !g.Upgradable || g.Failed || g.Latest != "21.0.8+7" || g.Local != "21.0.5+11" || g.Distro != name {
+		t.Errorf("21 组 = %+v, 想落后可升级", g)
+	}
+	if g := byMajor[17]; g.Upgradable || g.Failed {
+		t.Errorf("17 组 = %+v, 想已最新", g)
+	}
+	if g := byMajor[25]; !g.Failed || g.Upgradable || g.Latest != "" {
+		t.Errorf("25 组 = %+v, 想查询失败 (latest 空, upgradable false)", g)
+	}
+}
+
+// TestOutdatedJSONEmpty 验证未安装任何版本时 --json 输出空数组而非提示语。
+func TestOutdatedJSONEmpty(t *testing.T) {
+	withTempVersions(t)
+	out := captureStdout(t, func() { Outdated([]string{"--json"}) })
+	if got := strings.TrimSpace(out); got != `{"groups":[]}` {
+		t.Errorf("空安装输出 = %q, 想 {\"groups\":[]}", got)
 	}
 }

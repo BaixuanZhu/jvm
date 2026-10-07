@@ -127,12 +127,12 @@ func TestAvailableTableCacheHit(t *testing.T) {
 	p := &countingProvider{name: "fake-count-" + t.Name()}
 	provider.Register(p)
 
-	availableTable(p.name, false) // 首次: 直查 + 落缓存 (2 个 major → 2 次 LatestPatch)
+	availableTable(AvailableOptions{}, p.name) // 首次: 直查 + 落缓存 (2 个 major → 2 次 LatestPatch)
 	if n := atomic.LoadInt32(&p.calls); n != 2 {
 		t.Fatalf("首次查询 LatestPatch 调用 %d 次, 想 2", n)
 	}
 
-	out := captureStdout(t, func() { availableTable(p.name, false) })
+	out := captureStdout(t, func() { availableTable(AvailableOptions{}, p.name) })
 	if n := atomic.LoadInt32(&p.calls); n != 2 {
 		t.Errorf("二次查询应命中缓存零 API 调用, 实际又调了 %d 次", n-2)
 	}
@@ -140,7 +140,7 @@ func TestAvailableTableCacheHit(t *testing.T) {
 		t.Errorf("命中缓存应打印说明行, 输出: %s", out)
 	}
 
-	captureStdout(t, func() { availableTable(p.name, true) }) // --refresh 绕过
+	captureStdout(t, func() { availableTable(AvailableOptions{Refresh: true}, p.name) }) // --refresh 绕过
 	if n := atomic.LoadInt32(&p.calls); n != 4 {
 		t.Errorf("--refresh 应绕过缓存直查 (4 次), 实际 %d 次", n)
 	}

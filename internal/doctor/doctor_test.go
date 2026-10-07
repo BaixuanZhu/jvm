@@ -646,3 +646,38 @@ func TestCheckCache(t *testing.T) {
 		}
 	})
 }
+
+// TestChecksToReport 验证 --json 报告转换: 字段映射与顶层 ok 汇总。
+func TestChecksToReport(t *testing.T) {
+	t.Run("全部通过", func(t *testing.T) {
+		r := checksToReport([]check{
+			{ok: true, name: "目录结构", detail: "正常"},
+			{ok: true, name: "JAVA_HOME", detail: "指向 current"},
+		})
+		if !r.OK || len(r.Checks) != 2 {
+			t.Errorf("report = %+v", r)
+		}
+		if r.Checks[0].Name != "目录结构" || !r.Checks[0].OK || r.Checks[0].Fix != "" {
+			t.Errorf("首项 = %+v", r.Checks[0])
+		}
+	})
+	t.Run("有失败项", func(t *testing.T) {
+		r := checksToReport([]check{
+			{ok: true, name: "目录结构", detail: "正常"},
+			{ok: false, name: "current 链接", detail: "不存在", fix: "重建"},
+		})
+		if r.OK {
+			t.Error("有失败项时顶层 OK 应为 false")
+		}
+		c := r.Checks[1]
+		if c.OK || c.Fix != "重建" {
+			t.Errorf("失败项 = %+v, 想保留修复建议", c)
+		}
+	})
+	t.Run("空检查清单序列化为空数组", func(t *testing.T) {
+		r := checksToReport(nil)
+		if !r.OK || r.Checks == nil || len(r.Checks) != 0 {
+			t.Errorf("空清单 = %+v, 想 OK 且 Checks 非 nil 空切片", r)
+		}
+	})
+}

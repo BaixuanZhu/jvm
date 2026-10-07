@@ -29,6 +29,16 @@ func Fail(msg string) {
 	os.Exit(1)
 }
 
+// PrintJSON 将 v 以紧凑 JSON 编码写到 stdout (供只读命令的 --json 机器消费),
+// 尾随一个换行。放共享层是因 cmd 与 doctor 包都要输出 JSON, 避免后者依赖前者。
+func PrintJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		Fail("JSON 输出失败: " + err.Error())
+	}
+}
+
 // ParseMajorVersion 把用户输入解析为整数大版本号 (如 "21" -> 21)。
 // 非正整数或非数字会返回错误。
 func ParseMajorVersion(s string) (int, error) {
