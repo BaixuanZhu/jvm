@@ -83,7 +83,12 @@ title: 首页
       <div class="feature-card fade-in">
         <div class="icon">📄</div>
         <h3>项目级 .jvmrc</h3>
-        <p><code>jvm pin</code> 把版本固定在项目里，cd 进目录自动切换、cd 出去自动恢复，团队统一 JDK。</p>
+        <p><code>jvm pin</code> 把版本固定在项目里，cd 进目录自动切换、cd 出去自动恢复；还兼容 <code>.java-version</code> / <code>.tool-versions</code> / <code>.sdkmanrc</code> 生态格式。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="icon">🤖</div>
+        <h3>脚本与 CI 友好</h3>
+        <p><code>list / available / outdated / doctor</code> 支持 <code>--json</code> 机器可读输出，<code>home</code> 单行打印 JAVA_HOME，管道即插即用。</p>
       </div>
       <div class="feature-card fade-in">
         <div class="icon">🧪</div>

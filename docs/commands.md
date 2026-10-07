@@ -17,10 +17,11 @@ jvm install 21.0.12+8       # 安装 temurin 精确版本（完整版本号，�
 jvm install temurin@21.0.5+11 D:\jdk.zip   # 从本地 zip 安装（内网/手动下载，零网络）
 jvm use 21                  # 切换到 21（大版本号取最新 patch）
 jvm use corretto@21         # 切换到 corretto 21
-jvm uninstall 21            # 卸载（默认需确认，加 -y 跳过）
+jvm uninstall 21            # 卸载（默认需确认，加 -y 跳过；删在用版本后自动回退到剩余最新）
+jvm uninstall corretto@21 --all   # 批量卸载 corretto 21 组的全部已装 patch
 ```
 
-本地 zip 安装不访问网络、不做远程校验和校验（本地文件由你负责），安装后的目录命名与远程安装完全一致，`use` / `uninstall` / `outdated` 等命令照常工作。
+本地 zip 安装不访问网络、不做远程校验和校验（本地文件由你负责），安装后的目录命名与远程安装完全一致，`use` / `uninstall` / `outdated` 等命令照常工作。`--all` 只接受大版本号：先打印删除计划（标注在用版本）再一次确认，某目录被进程占用删不掉不阻断其余，末尾汇总、有失败时非零退出。
 
 ## 升级
 
@@ -43,7 +44,18 @@ jvm pin corretto@21
 jvm use                     # 无参数：从当前目录逐级向上找 .jvmrc 并切换
 ```
 
-配合 shell 集成 v2，cd 进含 `.jvmrc` 的目录会**自动切换**，cd 出去恢复原版本（详见[配置与原理]({{ '/docs/config/' | relative_url }})）。不支持自动切换的场景（如 CMD）用无参数 `jvm use` 即可。
+除原生 `.jvmrc` 外还**兼容读取**团队仓库常见的外来格式（同一目录按此优先级取用，逐级向上查找规则不变）：
+
+| 文件 | 来源生态 | 示例 |
+|------|---------|------|
+| `.jvmrc` | jvm 原生 | `corretto@21` |
+| `.java-version` | 通用 | `21.0.2` |
+| `.tool-versions` | asdf / mise | `java temurin-21.0.2+11` |
+| `.sdkmanrc` | sdkman | `java=21.0.2-tem` |
+
+这些生态的版本号普遍不含 build 号，外来格式按"先精确、失败降级为大版本组内最新"宽松匹配已装版本；`.jvmrc` 自身与显式命令参数保持严格语义。`jvm pin` 仍只写 `.jvmrc`。
+
+配合 shell 集成 v3，cd 进含版本固定文件的目录会**自动切换**，cd 出去恢复原版本（详见[配置与原理]({{ '/docs/config/' | relative_url }})）。不支持自动切换的场景（如 CMD）用无参数 `jvm use` 即可。
 
 ## 一次性执行（不动全局）
 
@@ -69,11 +81,22 @@ jvm home                    # 打印当前 JAVA_HOME 路径（单行，供 CI/ID
 jvm outdated                # 检查已装版本 patch 更新，提示升级命令
 jvm doctor                  # 诊断环境配置（14 项检查，附修复建议）
 jvm doctor --fix            # 自动修复失败项（残留清理逐条确认，-y 跳过）
-jvm cache                   # 查看下载缓存条目与磁盘占用
+jvm cache                   # 查看下载缓存条目与磁盘占用（附文件日期）
 jvm cache clean             # 清空下载缓存（含中断残留的 .part 分片）
+jvm cache clean --older-than 30d   # 只清修改于 30 天前的缓存文件
 ```
 
 `available` 的查询结果按条目本地缓存 10 分钟（`~/.jvm/available-cache.json`），二次查询不再实时打全部发行版 API；命中时输出会标注 `⚡ 缓存结果`。目标架构（`arch` 配置）变化时缓存自动整体失效。
+
+### 机器可读输出（--json）
+
+`list` / `available` / `outdated` / `doctor` 四个只读命令支持 `--json`（短名 `-j`），输出紧凑 JSON 供脚本与 CI 消费——只改输出格式，退出码与缓存行为和人类模式完全一致：
+
+```powershell
+jvm list --json | jq '.installed[].version'          # 所有已装版本号
+jvm outdated --json | jq '.groups[] | select(.upgradable)'   # 落后的组（upgradable 是现成结论）
+jvm doctor --json | jq -e '.ok'                      # CI 检查环境健康（读 ok 字段而非退出码）
+```
 
 ## Shell 集成
 
@@ -96,4 +119,4 @@ jvm help                    # 帮助
 
 ## Tab 补全
 
-PowerShell 5.1/7+ 与 Git Bash 均支持智能补全：`jvm <TAB>` 补子命令、`jvm use <TAB>` 补本地已装版本、`jvm install <TAB>` 补发行版前缀（本地 zip 安装时路径槽让给 shell 默认文件补全）、`jvm exec <TAB>` 补已装版本（`--` 之后让位给要执行的命令）、`jvm update <TAB>` 补 `distro@大版本`、`jvm available <TAB>` 补 `-a` / `-m` / `-r` 选项、`jvm doctor <TAB>` 补 `--fix` / `-y`。静默自举注入，零配置；补全内容有版本 token，升级 jvm 后自动刷新。
+PowerShell 5.1/7+ 与 Git Bash 均支持智能补全：`jvm <TAB>` 补子命令、`jvm use <TAB>` 补本地已装版本、`jvm install <TAB>` 补发行版前缀（本地 zip 安装时路径槽让给 shell 默认文件补全）、`jvm exec <TAB>` 补已装版本（`--` 之后让位给要执行的命令）、`jvm update <TAB>` 补 `distro@大版本`、`jvm available <TAB>` 补 `-a` / `-m` / `-r` / `--json` 选项、`jvm list` / `outdated` / `doctor <TAB>` 补 `--json`（doctor 另有 `--fix` / `-y`）、`jvm cache clean <TAB>` 补 `--older-than`。静默自举注入，零配置；补全内容有版本 token，升级 jvm 后自动刷新。
