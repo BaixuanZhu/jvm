@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 新增
+
+- Tab 补全跟上 v0.15.0 的新 flag（补全块 v8，升级 jvm 后自动刷新）：
+  `available` / `doctor` 选项补全加 `--json`，`list` / `outdated` 补 `--json`，
+  `cache clean` 后补 `--older-than`。
+
 ## [0.15.0] - 2026-10-07
 
 ### 新增

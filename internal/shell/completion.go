@@ -5,8 +5,10 @@
 //   - jvm install <TAB>             distro@ 前缀 (远程版本太慢不补; 第二参数 zip 路径走默认文件补全)
 //   - jvm use/pin/uninstall <TAB>   本地已装版本 (读 ~/.jvm/versions, 零子进程)
 //   - jvm exec <TAB>                本地已装版本 (仅 -- 之前的版本槽, 之后让位给命令补全)
-//   - jvm available <TAB>           distro 名 + -a/-m 选项
-//   - jvm doctor <TAB>              --fix/-y 选项
+//   - jvm available <TAB>           distro 名 + -a/-m/-r/--json 选项
+//   - jvm list/outdated <TAB>       --json 选项
+//   - jvm doctor <TAB>              --fix/-y/--json 选项
+//   - jvm cache clean <TAB>         --older-than 选项
 //   - jvm init/completion <TAB>     powershell/bash 参数 + --install 选项
 //
 // 设计要点:
@@ -51,7 +53,10 @@ const completionEndMarker = "# <<< jvm completion <<<"
 //
 // v6: update 参数补全加 --all/-a 选项。
 // v7: available 参数补全加 -r/--refresh 选项。
-const completionVersionToken = "# jvm-completion: v7"
+// v8: 只读命令 --json 补全 (available/doctor 加选项, list/outdated 新增分支);
+//
+//	cache clean 补 --older-than。
+const completionVersionToken = "# jvm-completion: v8"
 
 // distroNames 从 provider 注册表提取所有发行版名 (provider.All 已字典序排序)。
 // 供补全脚本嵌入 distro@ 前缀和 available 参数补全。
@@ -122,8 +127,12 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
             }
         }
     } elseif ($cmd -eq 'available') {
-        $cands = @('-a','--all','-m','--major','-r','--refresh') + $_jvmDistros
+        $cands = @('-a','--all','-m','--major','-r','--refresh','--json','-j') + $_jvmDistros
         $cands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+    } elseif ($cmd -in @('list','ls','outdated')) {
+        '--json','-j' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     } elseif ($cmd -in @('use','pin','uninstall','rm')) {
@@ -152,11 +161,14 @@ Register-ArgumentCompleter -Native -CommandName jvm -ScriptBlock {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     } elseif ($cmd -eq 'cache') {
-        'clean' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        # Complete "clean" in the first slot; after clean, offer --older-than.
+        $cands = 'clean'
+        if ((-not $completingArg1) -and ($elements[2].Extent.Text -eq 'clean')) { $cands = '--older-than' }
+        $cands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     } elseif ($cmd -eq 'doctor') {
-        '--fix','-f','-y','--yes' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        '--fix','-f','-y','--yes','--json','-j' | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     } elseif ($cmd -in @('init','completion')) {
@@ -231,7 +243,10 @@ _jvm() {
             fi
             ;;
         available)
-            COMPREPLY=($(compgen -W "-a --all -m --major -r --refresh $_jvm_distros" -- "$cur"))
+            COMPREPLY=($(compgen -W "-a --all -m --major -r --refresh --json -j $_jvm_distros" -- "$cur"))
+            ;;
+        list|ls|outdated)
+            COMPREPLY=($(compgen -W "--json -j" -- "$cur"))
             ;;
         exec)
             # Complete versions only before --; past it the user types the command to run.
@@ -244,7 +259,7 @@ _jvm() {
             fi
             ;;
         doctor)
-            COMPREPLY=($(compgen -W "--fix -f -y --yes" -- "$cur"))
+            COMPREPLY=($(compgen -W "--fix -f -y --yes --json -j" -- "$cur"))
             ;;
         init|completion)
             if [ "$arg1" -eq 1 ]; then
@@ -267,7 +282,12 @@ _jvm() {
             COMPREPLY=($(compgen -W "$majors" -- "$cur"))
             ;;
         cache)
-            COMPREPLY=($(compgen -W "clean" -- "$cur"))
+            # Complete "clean" in the first slot; after clean, offer --older-than.
+            if [ "$COMP_CWORD" -ge 3 ] && [ "${COMP_WORDS[2]}" = "clean" ]; then
+                COMPREPLY=($(compgen -W "--older-than" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "clean" -- "$cur"))
+            fi
             ;;
     esac
     return 0
