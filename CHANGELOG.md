@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-07
+
 ### 新增
 
 - 版本固定文件生态兼容读取：`jvm use` 无参 / `jvm exec` 无版本号 / `.jvmrc`
@@ -407,6 +409,7 @@
 - NSIS 安装包 + GitHub Actions 自动发布。
 
 [Unreleased]: https://github.com/BaixuanZhu/jvm/compare/v0.14.0...HEAD
+[0.15.0]: https://github.com/BaixuanZhu/jvm/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/BaixuanZhu/jvm/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/BaixuanZhu/jvm/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/BaixuanZhu/jvm/compare/v0.11.1...v0.12.0
